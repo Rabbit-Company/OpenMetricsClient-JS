@@ -1,11 +1,11 @@
 {
 	"name": "@rabbit-company/openmetrics-client",
 	"version": "1.0.0",
-	"description": "Prometheus client",
+	"description": "OpenMetrics client",
 	"main": "./module/openmetrics-client.js",
 	"browser": "./module/openmetrics-client.js",
 	"type": "module",
-	"homepage": "https://github.com/Rabbit-Company/PrometheusClient-JS",
+	"homepage": "https://github.com/Rabbit-Company/OpenMetricsClient-JS",
 	"funding": "https://rabbit-company.com/donation",
 	"author": "Rabbit Company <info@rabbit-company.com>",
 	"license": "MIT",
@@ -20,20 +20,20 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/Rabbit-Company/PrometheusClient-JS.git"
+		"url": "git+https://github.com/Rabbit-Company/OpenMetricsClient-JS.git"
 	},
 	"contributors": [
 		"Rabbit Company <info@rabbit-company.com> (https://github.com/Rabbit-Company)"
 	],
 	"bugs": {
-		"url": "https://github.com/Rabbit-Company/PrometheusClient-JS/issues",
+		"url": "https://github.com/Rabbit-Company/OpenMetricsClient-JS/issues",
 		"email": "info@rabbit-company.com"
 	},
 	"keywords": [
-		"prometheus",
-		"client",
 		"openmetrics",
-		"metrics"
+		"metrics",
+		"prometheus",
+		"client"
 	],
 	"devDependencies": {
 		"@rabbit-company/logger": "4.0.0",
