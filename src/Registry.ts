@@ -123,7 +123,7 @@ export class Registry {
 		return (
 			Array.from(this.metrics.values())
 				.map((m) => m.getMetric(this.prefix))
-				.join("\n\n") + "\n# EOF"
+				.join("\n") + "\n# EOF"
 		);
 	}
 

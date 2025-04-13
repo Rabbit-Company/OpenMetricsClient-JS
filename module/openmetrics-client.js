@@ -43,7 +43,6 @@ class Registry {
   }
   metricsText() {
     return Array.from(this.metrics.values()).map((m) => m.getMetric(this.prefix)).join(`
-
 `) + `
 # EOF`;
   }
@@ -69,14 +68,14 @@ class BaseMetric {
     }
   }
   validateLabels(labels) {
-    if (labels) {
-      for (const [key, value] of Object.entries(labels)) {
-        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-          throw new Error(`Invalid label name: ${key}`);
-        }
-        if (typeof value !== "string") {
-          throw new Error(`Label value must be string for key: ${key}`);
-        }
+    if (!labels)
+      return;
+    for (const [key, value] of Object.entries(labels)) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+        throw new Error(`Invalid label name: ${key}`);
+      }
+      if (typeof value !== "string") {
+        throw new Error(`Label value must be string for key: ${key}`);
       }
     }
   }
