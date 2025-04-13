@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"exports": "./src/openmetrics-client.ts",
 	"publish": {
-		"include": ["LICENSE", "README.md", "src/*"],
+		"include": ["LICENSE", "README.md", "src/"],
 		"exclude": ["src/index.ts"]
 	}
 }
