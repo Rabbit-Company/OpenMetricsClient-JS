@@ -1,0 +1,47 @@
+{
+	"name": "@rabbit-company/openmetrics-client",
+	"version": "1.0.0",
+	"description": "Prometheus client",
+	"main": "./module/openmetrics-client.js",
+	"browser": "./module/openmetrics-client.js",
+	"type": "module",
+	"homepage": "https://github.com/Rabbit-Company/PrometheusClient-JS",
+	"funding": "https://rabbit-company.com/donation",
+	"author": "Rabbit Company <info@rabbit-company.com>",
+	"license": "MIT",
+	"private": false,
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"build": "bun run build.ts"
+	},
+	"files": [
+		"module/openmetrics-client.js",
+		"module/openmetrics-client.d.ts"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Rabbit-Company/PrometheusClient-JS.git"
+	},
+	"contributors": [
+		"Rabbit Company <info@rabbit-company.com> (https://github.com/Rabbit-Company)"
+	],
+	"bugs": {
+		"url": "https://github.com/Rabbit-Company/PrometheusClient-JS/issues",
+		"email": "info@rabbit-company.com"
+	},
+	"keywords": [
+		"prometheus",
+		"client",
+		"openmetrics",
+		"metrics"
+	],
+	"devDependencies": {
+		"@rabbit-company/logger": "4.0.0",
+		"bun-plugin-dts": "^0.3.0",
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {}
+}
