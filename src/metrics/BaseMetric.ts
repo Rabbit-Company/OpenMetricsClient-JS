@@ -46,9 +46,16 @@ export abstract class BaseMetric {
 	 * @throws {Error} If label validation fails
 	 */
 	constructor(options: MetricOptions) {
-		this.name = options.name;
+		let name = options.name;
+		const unit = options.unit;
+
+		if (unit && !name.endsWith(`_${unit}`)) {
+			name = `${name}_${unit}`;
+		}
+
+		this.name = name;
 		this.help = options.help;
-		this.unit = options.unit;
+		this.unit = unit;
 		this.labels = options.labels || {};
 
 		if (options.registry) {

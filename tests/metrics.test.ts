@@ -139,4 +139,19 @@ describe("Metrics Library", () => {
 			}).toThrow("Invalid label name");
 		});
 	});
+
+	describe("Unit Suffix Handling", () => {
+		test("should append '_bytes' to name if unit is 'bytes' and name doesn't include it", () => {
+			const gauge = new Gauge({
+				name: "request_size",
+				help: "Size of the request",
+				unit: "bytes",
+				registry,
+			});
+
+			const text = registry.metricsText();
+			expect(text).toInclude("# TYPE test_request_size_bytes gauge");
+			expect(text).toInclude("test_request_size_bytes 0");
+		});
+	});
 });

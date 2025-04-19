@@ -1,6 +1,6 @@
 {
 	"name": "@rabbit-company/openmetrics-client",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "OpenMetrics client",
 	"main": "./module/openmetrics-client.js",
 	"browser": "./module/openmetrics-client.js",
