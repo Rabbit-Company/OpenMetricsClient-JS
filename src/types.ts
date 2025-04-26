@@ -1,6 +1,21 @@
 import type { Registry } from "./Registry";
 
 /**
+ * The standard Content-Type header value for OpenMetrics format
+ * @constant
+ * @type {string}
+ * @default "application/openmetrics-text; version=1.0.0; charset=utf-8"
+ * @example
+ * // Using with HTTP response
+ * res.setHeader('Content-Type', OPENMETRICS_CONTENT_TYPE);
+ *
+ * // Using with fetch API
+ * const headers = new Headers();
+ * headers.set('Content-Type', OPENMETRICS_CONTENT_TYPE);
+ */
+export const OPENMETRICS_CONTENT_TYPE = "application/openmetrics-text; version=1.0.0; charset=utf-8";
+
+/**
  * Options for configuring a metrics registry
  * @interface RegistryOptions
  */

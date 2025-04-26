@@ -1,5 +1,5 @@
 import { BaseMetric } from "./metrics/BaseMetric";
-import type { RegistryOptions } from "./types";
+import { OPENMETRICS_CONTENT_TYPE, type RegistryOptions } from "./types";
 
 /**
  * A registry for collecting and managing metrics.
@@ -30,6 +30,27 @@ export class Registry {
 	 * @readonly
 	 */
 	private readonly autoRegister: boolean;
+
+	/**
+	 * Returns the standard OpenMetrics content type header value
+	 * @static
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', Registry.contentType);
+	 */
+	static get contentType(): string {
+		return OPENMETRICS_CONTENT_TYPE;
+	}
+
+	/**
+	 * Instance accessor for the content type
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', registry.contentType);
+	 */
+	get contentType(): string {
+		return OPENMETRICS_CONTENT_TYPE;
+	}
 
 	/**
 	 * Creates a new Registry instance
