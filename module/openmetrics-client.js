@@ -325,9 +325,9 @@ class Histogram extends BaseMetric {
       const labelStr = this.formatLabels(labels);
       const createdTimestamp = series.created / 1000;
       this.buckets.forEach((bucket) => {
-        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get(bucket.toString()) || 0}`);
       });
-      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`, `${name}_count${labelStr} ${series.count}`, `${name}_sum${labelStr} ${series.sum}`, `${name}_created${labelStr} ${createdTimestamp}`);
+      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get("+Inf") || 0}`, `${name}_count${labelStr} ${series.count}`, `${name}_sum${labelStr} ${series.sum}`, `${name}_created${labelStr} ${createdTimestamp}`);
     }
     return lines.join(`
 `);
@@ -467,11 +467,11 @@ class Summary extends BaseMetric {
           if (baseValue !== undefined) {
             value = nextValue !== undefined ? baseValue + rest * (nextValue - baseValue) : baseValue;
           }
-          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} ${value}`);
+          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : "}"} ${value}`);
         }
       } else {
         for (const q of this.quantiles) {
-          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} NaN`);
+          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : "}"} NaN`);
         }
       }
       lines.push(`${fullName}_sum${labelStr} ${series.sum}`, `${fullName}_count${labelStr} ${series.count}`, `${fullName}_created${labelStr} ${createdTimestamp}`);
@@ -580,9 +580,9 @@ class GaugeHistogram extends BaseMetric {
       const labels = Object.fromEntries(JSON.parse(key));
       const labelStr = this.formatLabels(labels);
       this.buckets.forEach((bucket) => {
-        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get(bucket.toString()) || 0}`);
       });
-      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`);
+      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get("+Inf") || 0}`);
       lines.push(`${name}_gsum${labelStr} ${series.sum}`, `${name}_gcount${labelStr} ${series.count}`);
     }
     return lines.join(`
@@ -665,6 +665,14 @@ class StateSet extends BaseMetric {
     }
     this.timeSeries.get(key).states[state] = value;
   }
+  getState(state, labels) {
+    this.validateLabels(labels);
+    if (!this.stateNames.includes(state)) {
+      throw new Error(`Unknown state: ${state}`);
+    }
+    const key = this.getTimeSeriesKey(labels);
+    return this.timeSeries.get(key)?.states[state] || false;
+  }
   enableOnly(state, labels) {
     this.validateLabels(labels);
     if (!this.stateNames.includes(state)) {
@@ -683,7 +691,8 @@ class StateSet extends BaseMetric {
     this.validateLabels(labels);
     return {
       setState: (state, value) => this.setState(state, value, labels),
-      enableOnly: (state) => this.enableOnly(state, labels)
+      enableOnly: (state) => this.enableOnly(state, labels),
+      getState: (state) => this.getState(state, labels)
     };
   }
   getTimeSeriesKey(labels = {}) {

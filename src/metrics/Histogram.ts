@@ -223,12 +223,12 @@ export class Histogram extends BaseMetric {
 
 			// Add bucket metrics
 			this.buckets.forEach((bucket) => {
-				lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+				lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get(bucket.toString()) || 0}`);
 			});
 
 			// Add +Inf bucket and summary metrics
 			lines.push(
-				`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`,
+				`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get("+Inf") || 0}`,
 				`${name}_count${labelStr} ${series.count}`,
 				`${name}_sum${labelStr} ${series.sum}`,
 				`${name}_created${labelStr} ${createdTimestamp}`

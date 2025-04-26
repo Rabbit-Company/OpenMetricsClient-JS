@@ -118,6 +118,25 @@ export class StateSet extends BaseMetric {
 	}
 
 	/**
+	 * Returns the current value of a state for labeled instance
+	 * @param {string} state - The state to check
+	 * @param {Record<string, string>} labels - Label values identifying the instance
+	 * @returns {boolean} The current value of the state
+	 * @throws {Error} If state doesn't exist or labels are invalid
+	 * @example
+	 * const isRunning = stateSet.getState('running', { instance: 'primary' });
+	 */
+	getState(state: string, labels?: Record<string, string>): boolean {
+		this.validateLabels(labels);
+		if (!this.stateNames.includes(state)) {
+			throw new Error(`Unknown state: ${state}`);
+		}
+
+		const key = this.getTimeSeriesKey(labels);
+		return this.timeSeries.get(key)?.states[state] || false;
+	}
+
+	/**
 	 * Enables exactly one state and disables all others for labeled instance
 	 * @param {string} state - The state to enable
 	 * @param {Record<string, string>} labels - Label values identifying the instance
@@ -155,6 +174,7 @@ export class StateSet extends BaseMetric {
 		return {
 			setState: (state: string, value: boolean) => this.setState(state, value, labels),
 			enableOnly: (state: string) => this.enableOnly(state, labels),
+			getState: (state: string) => this.getState(state, labels),
 		};
 	}
 
@@ -211,6 +231,7 @@ export class StateSet extends BaseMetric {
  * @interface StateSetLabelInterface
  * @property {function(string, boolean): void} setState - Sets a specific state's value
  * @property {function(string): void} enableOnly - Enables exactly one state and disables others
+ * @property {function(string): boolean} getState - Gets the current value of a state
  */
 interface StateSetLabelInterface {
 	/**
@@ -225,4 +246,11 @@ interface StateSetLabelInterface {
 	 * @param {string} state - The state to enable
 	 */
 	enableOnly(state: string): void;
+
+	/**
+	 * Gets the current value of a state
+	 * @param {string} state - The state to check
+	 * @returns {boolean} The current value of the state
+	 */
+	getState(state: string): boolean;
 }

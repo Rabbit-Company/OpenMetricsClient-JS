@@ -221,10 +221,10 @@ export class GaugeHistogram extends BaseMetric {
 			const labelStr = this.formatLabels(labels);
 
 			this.buckets.forEach((bucket) => {
-				lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+				lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get(bucket.toString()) || 0}`);
 			});
 
-			lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`);
+			lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : "}"} ${series.counts.get("+Inf") || 0}`);
 
 			lines.push(`${name}_gsum${labelStr} ${series.sum}`, `${name}_gcount${labelStr} ${series.count}`);
 		}

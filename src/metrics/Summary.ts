@@ -316,11 +316,11 @@ export class Summary extends BaseMetric {
 						value = nextValue !== undefined ? baseValue + rest * (nextValue - baseValue) : baseValue;
 					}
 
-					lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} ${value}`);
+					lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : "}"} ${value}`);
 				}
 			} else {
 				for (const q of this.quantiles) {
-					lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} NaN`);
+					lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : "}"} NaN`);
 				}
 			}
 
