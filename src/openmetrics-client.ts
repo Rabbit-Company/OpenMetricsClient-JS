@@ -1,3 +1,5 @@
+export { OPENMETRICS_CONTENT_TYPE } from "./types";
+
 export { Registry } from "./Registry";
 
 export { Counter } from "./metrics/Counter";
@@ -10,7 +12,6 @@ export { StateSet } from "./metrics/StateSet";
 export { Unknown } from "./metrics/Unknown";
 
 export type {
-	OPENMETRICS_CONTENT_TYPE,
 	RegistryOptions,
 	MetricOptions,
 	CounterData,

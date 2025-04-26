@@ -1,6 +1,5 @@
 // src/types.ts
 var OPENMETRICS_CONTENT_TYPE = "application/openmetrics-text; version=1.0.0; charset=utf-8";
-
 // src/Registry.ts
 class Registry {
   metrics = new Map;
@@ -777,6 +776,7 @@ export {
   Summary,
   StateSet,
   Registry,
+  OPENMETRICS_CONTENT_TYPE,
   Info,
   Histogram,
   GaugeHistogram,

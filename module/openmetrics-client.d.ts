@@ -1,3 +1,169 @@
+declare abstract class BaseMetric {
+	/**
+	 * The name of the metric (must be unique within its registry)
+	 * @public
+	 * @readonly
+	 */
+	readonly name: string;
+	/**
+	 * Descriptive help text for the metric
+	 * @public
+	 * @readonly
+	 */
+	readonly help: string;
+	/**
+	 * Optional unit of measurement for the metric
+	 * @public
+	 * @readonly
+	 */
+	readonly unit?: string;
+	/**
+	 * Array of allowed label names for this metric
+	 * @public
+	 * @readonly
+	 */
+	readonly labelNames: string[];
+	/**
+	 * Reference to the registry this metric is registered with (if any)
+	 * @public
+	 */
+	registry?: Registry;
+	/**
+	 * Creates a new BaseMetric instance
+	 * @constructor
+	 * @param {MetricOptions} options - Configuration options for the metric
+	 * @throws {Error} If label name validation fails
+	 */
+	constructor(options: MetricOptions);
+	/**
+	 * Validates metric label names
+	 * @private
+	 * @throws {Error} If any label name is invalid
+	 */
+	private validateLabelNames;
+	/**
+	 * Validates provided label values against expected label names
+	 * @protected
+	 * @param {Record<string, string>} labels - Labels to validate
+	 * @throws {Error} If labels don't match expected label names
+	 */
+	protected validateLabels(labels?: Record<string, string>): void;
+	/**
+	 * Gets the fully qualified metric name with optional prefix
+	 * @param {string} [prefix] - Optional prefix to prepend
+	 * @returns {string} Full metric name
+	 * @example
+	 * metric.getFullName('app') // returns 'app_requests'
+	 */
+	getFullName(prefix?: string): string;
+	/**
+	 * Formats labels for OpenMetrics output
+	 * @protected
+	 * @param {Record<string, string>} labels - Labels to format
+	 * @returns {string} Formatted label string in OpenMetrics format
+	 */
+	protected formatLabels(labels?: Record<string, string>): string;
+	/**
+	 * Generates metadata lines for OpenMetrics output
+	 * @protected
+	 * @param {string} type - The metric type (counter, gauge, etc.)
+	 * @param {string} [prefix] - Optional name prefix
+	 * @returns {string} Formatted metadata lines
+	 */
+	protected metadata(type: string, prefix?: string): string;
+	/**
+	 * Abstract method to generate complete OpenMetrics output for the metric
+	 * @abstract
+	 * @param {string} [prefix] - Optional name prefix
+	 * @returns {string} Complete OpenMetrics formatted metric data
+	 */
+	abstract getMetric(prefix?: string): string;
+}
+/**
+ * A registry for collecting and managing metrics.
+ *
+ * The Registry is responsible for storing metrics, enforcing uniqueness,
+ * and generating OpenMetrics-compatible output.
+ *
+ * @class Registry
+ * @example
+ * const registry = new Registry({ prefix: "app" });
+ * const counter = new Counter({ name: 'requests', help: 'Total requests', registry });
+ * console.log(registry.metricsText());
+ */
+export declare class Registry {
+	/**
+	 * Internal storage of metrics using a Map with composite keys
+	 * @private
+	 */
+	private metrics;
+	/**
+	 * Optional prefix for all metric names
+	 * @private
+	 */
+	private prefix?;
+	/**
+	 * Whether to automatically set the registry reference on registered metrics
+	 * @private
+	 * @readonly
+	 */
+	private readonly autoRegister;
+	/**
+	 * Returns the standard OpenMetrics content type header value
+	 * @static
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', Registry.contentType);
+	 */
+	static get contentType(): string;
+	/**
+	 * Instance accessor for the content type
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', registry.contentType);
+	 */
+	get contentType(): string;
+	/**
+	 * Creates a new Registry instance
+	 * @constructor
+	 * @param {RegistryOptions} [options] - Configuration options
+	 */
+	constructor(options?: RegistryOptions);
+	/**
+	 * Registers a new metric with the registry
+	 * @param {BaseMetric} metric - The metric to register
+	 * @throws {Error} If a metric with the same name already exists
+	 * @example
+	 * registry.register(new Counter({ name: 'hits', help: 'Page hits' }));
+	 */
+	register(metric: BaseMetric): void;
+	/**
+	 * Unregisters a metric by name
+	 * @param {string} name - The metric name to remove
+	 * @returns {boolean} True if the metric was found and removed
+	 */
+	unregister(name: string): boolean;
+	/**
+	 * Gets all registered metrics
+	 * @returns {BaseMetric[]} Array of all registered metrics
+	 */
+	getMetrics(): BaseMetric[];
+	/**
+	 * Finds a metric by name
+	 * @param {string} name - The metric name to find
+	 * @returns {BaseMetric|undefined} The found metric or undefined
+	 */
+	getMetric(name: string): BaseMetric | undefined;
+	/**
+	 * Generates OpenMetrics-compatible text output
+	 * @returns {string} Formatted metrics text
+	 */
+	metricsText(): string;
+	/**
+	 * Clears all metrics from the registry
+	 */
+	clear(): void;
+}
 /**
  * The standard Content-Type header value for OpenMetrics format
  * @constant
@@ -266,172 +432,6 @@ export interface SummaryData {
 	 * @type {Date}
 	 */
 	created: Date;
-}
-declare abstract class BaseMetric {
-	/**
-	 * The name of the metric (must be unique within its registry)
-	 * @public
-	 * @readonly
-	 */
-	readonly name: string;
-	/**
-	 * Descriptive help text for the metric
-	 * @public
-	 * @readonly
-	 */
-	readonly help: string;
-	/**
-	 * Optional unit of measurement for the metric
-	 * @public
-	 * @readonly
-	 */
-	readonly unit?: string;
-	/**
-	 * Array of allowed label names for this metric
-	 * @public
-	 * @readonly
-	 */
-	readonly labelNames: string[];
-	/**
-	 * Reference to the registry this metric is registered with (if any)
-	 * @public
-	 */
-	registry?: Registry;
-	/**
-	 * Creates a new BaseMetric instance
-	 * @constructor
-	 * @param {MetricOptions} options - Configuration options for the metric
-	 * @throws {Error} If label name validation fails
-	 */
-	constructor(options: MetricOptions);
-	/**
-	 * Validates metric label names
-	 * @private
-	 * @throws {Error} If any label name is invalid
-	 */
-	private validateLabelNames;
-	/**
-	 * Validates provided label values against expected label names
-	 * @protected
-	 * @param {Record<string, string>} labels - Labels to validate
-	 * @throws {Error} If labels don't match expected label names
-	 */
-	protected validateLabels(labels?: Record<string, string>): void;
-	/**
-	 * Gets the fully qualified metric name with optional prefix
-	 * @param {string} [prefix] - Optional prefix to prepend
-	 * @returns {string} Full metric name
-	 * @example
-	 * metric.getFullName('app') // returns 'app_requests'
-	 */
-	getFullName(prefix?: string): string;
-	/**
-	 * Formats labels for OpenMetrics output
-	 * @protected
-	 * @param {Record<string, string>} labels - Labels to format
-	 * @returns {string} Formatted label string in OpenMetrics format
-	 */
-	protected formatLabels(labels?: Record<string, string>): string;
-	/**
-	 * Generates metadata lines for OpenMetrics output
-	 * @protected
-	 * @param {string} type - The metric type (counter, gauge, etc.)
-	 * @param {string} [prefix] - Optional name prefix
-	 * @returns {string} Formatted metadata lines
-	 */
-	protected metadata(type: string, prefix?: string): string;
-	/**
-	 * Abstract method to generate complete OpenMetrics output for the metric
-	 * @abstract
-	 * @param {string} [prefix] - Optional name prefix
-	 * @returns {string} Complete OpenMetrics formatted metric data
-	 */
-	abstract getMetric(prefix?: string): string;
-}
-/**
- * A registry for collecting and managing metrics.
- *
- * The Registry is responsible for storing metrics, enforcing uniqueness,
- * and generating OpenMetrics-compatible output.
- *
- * @class Registry
- * @example
- * const registry = new Registry({ prefix: "app" });
- * const counter = new Counter({ name: 'requests', help: 'Total requests', registry });
- * console.log(registry.metricsText());
- */
-export declare class Registry {
-	/**
-	 * Internal storage of metrics using a Map with composite keys
-	 * @private
-	 */
-	private metrics;
-	/**
-	 * Optional prefix for all metric names
-	 * @private
-	 */
-	private prefix?;
-	/**
-	 * Whether to automatically set the registry reference on registered metrics
-	 * @private
-	 * @readonly
-	 */
-	private readonly autoRegister;
-	/**
-	 * Returns the standard OpenMetrics content type header value
-	 * @static
-	 * @returns {string} The content type string for OpenMetrics
-	 * @example
-	 * res.setHeader('Content-Type', Registry.contentType);
-	 */
-	static get contentType(): string;
-	/**
-	 * Instance accessor for the content type
-	 * @returns {string} The content type string for OpenMetrics
-	 * @example
-	 * res.setHeader('Content-Type', registry.contentType);
-	 */
-	get contentType(): string;
-	/**
-	 * Creates a new Registry instance
-	 * @constructor
-	 * @param {RegistryOptions} [options] - Configuration options
-	 */
-	constructor(options?: RegistryOptions);
-	/**
-	 * Registers a new metric with the registry
-	 * @param {BaseMetric} metric - The metric to register
-	 * @throws {Error} If a metric with the same name already exists
-	 * @example
-	 * registry.register(new Counter({ name: 'hits', help: 'Page hits' }));
-	 */
-	register(metric: BaseMetric): void;
-	/**
-	 * Unregisters a metric by name
-	 * @param {string} name - The metric name to remove
-	 * @returns {boolean} True if the metric was found and removed
-	 */
-	unregister(name: string): boolean;
-	/**
-	 * Gets all registered metrics
-	 * @returns {BaseMetric[]} Array of all registered metrics
-	 */
-	getMetrics(): BaseMetric[];
-	/**
-	 * Finds a metric by name
-	 * @param {string} name - The metric name to find
-	 * @returns {BaseMetric|undefined} The found metric or undefined
-	 */
-	getMetric(name: string): BaseMetric | undefined;
-	/**
-	 * Generates OpenMetrics-compatible text output
-	 * @returns {string} Formatted metrics text
-	 */
-	metricsText(): string;
-	/**
-	 * Clears all metrics from the registry
-	 */
-	clear(): void;
 }
 /**
  * A counter metric that represents a monotonically increasing value.
