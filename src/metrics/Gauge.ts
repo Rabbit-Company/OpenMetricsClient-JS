@@ -3,28 +3,24 @@ import { BaseMetric } from "./BaseMetric";
 
 /**
  * A gauge metric that represents a value that can go up or down.
- * Gauges are typically used to track current memory usage, active connections,
- * or any other instantaneous measurement.
- *
+ * Supports multiple time series with dynamic labels.
  * @class Gauge
  * @extends BaseMetric
  * @example
- * const gauge = new Gauge({ name: 'temperature', help: 'Current temperature' });
- * gauge.set(23.5);
- * gauge.inc(0.5); // Increase by 0.5
- * gauge.dec(1.0); // Decrease by 1.0
+ * const gauge = new Gauge({
+ *   name: 'temperature',
+ *   help: 'Current temperature',
+ *   labelNames: ['location']
+ * });
+ * gauge.labels({ location: 'kitchen' }).set(23.5);
+ * gauge.labels({ location: 'bedroom' }).inc(0.5);
  */
 export class Gauge extends BaseMetric {
 	/**
-	 * Current value of the gauge
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private value = 0;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated: number = Date.now();
+	private timeSeries: Map<string, { value: number; updated: number }> = new Map();
 
 	/**
 	 * Creates a new Gauge instance
@@ -33,48 +29,43 @@ export class Gauge extends BaseMetric {
 	 */
 	constructor(options: MetricOptions) {
 		super(options);
-		this.validateLabels(options.labels);
 	}
 
 	/**
-	 * Increments the gauge value
+	 * Increments the gauge value for specific labels
 	 * @param {number} [amount=1] - The amount to increment by
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.inc(); // increments by 1
-	 * gauge.inc(2.5); // increments by 2.5
 	 */
-	inc(amount: number = 1): void {
-		if (!Number.isFinite(amount)) return;
-		this.value += amount;
-		this.updated = Date.now();
+	inc(amount: number = 1, labels?: Record<string, string>): void {
+		this.validateLabels(labels);
+		const key = this.getTimeSeriesKey(labels);
+		const entry = this.timeSeries.get(key) || { value: 0, updated: 0 };
+		entry.value += amount;
+		entry.updated = Date.now();
+		this.timeSeries.set(key, entry);
 	}
 
 	/**
-	 * Decrements the gauge value
+	 * Decrements the gauge value for specific labels
 	 * @param {number} [amount=1] - The amount to decrement by
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.dec(); // decrements by 1
-	 * gauge.dec(0.5); // decrements by 0.5
 	 */
-	dec(amount: number = 1): void {
-		if (!Number.isFinite(amount)) return;
-		this.value -= amount;
-		this.updated = Date.now();
+	dec(amount: number = 1, labels?: Record<string, string>): void {
+		this.inc(-amount, labels);
 	}
 
 	/**
-	 * Sets the gauge to a specific value
+	 * Sets the gauge to a specific value for specific labels
 	 * @param {number} value - The new value to set
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.set(42); // sets value to 42
 	 */
-	set(value: number): void {
-		if (!Number.isFinite(value)) return;
-		this.value = value;
-		this.updated = Date.now();
+	set(value: number, labels?: Record<string, string>): void {
+		this.validateLabels(labels);
+		const key = this.getTimeSeriesKey(labels);
+		this.timeSeries.set(key, { value, updated: Date.now() });
 	}
 
 	/**
@@ -84,10 +75,38 @@ export class Gauge extends BaseMetric {
 	 * const data = gauge.get();
 	 * console.log(data.value, data.updated);
 	 */
-	get(): GaugeData {
+	get(labels?: Record<string, string>): GaugeData | null {
+		const key = this.getTimeSeriesKey(labels);
+		const data = this.timeSeries.get(key);
+		if (!data) return null;
 		return {
-			value: this.value,
-			updated: new Date(this.updated),
+			value: data.value,
+			updated: new Date(data.updated),
+		};
+	}
+
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey(labels: Record<string, string> = {}): string {
+		const sorted = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+		return JSON.stringify(sorted);
+	}
+
+	/**
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {GaugeLabelInterface} Interface with inc, dec, and set methods
+	 */
+	labels(labels: Record<string, string> = {}): GaugeLabelInterface {
+		this.validateLabels(labels);
+		return {
+			inc: (amount = 1) => this.inc(amount, labels),
+			dec: (amount = 1) => this.dec(amount, labels),
+			set: (value: number) => this.set(value, labels),
 		};
 	}
 
@@ -96,17 +115,31 @@ export class Gauge extends BaseMetric {
 	 * @override
 	 * @param {string} [prefix] - Optional metric name prefix
 	 * @returns {string} OpenMetrics formatted gauge data
-	 * @example
-	 * console.log(gauge.getMetric());
-	 * // # TYPE temperature gauge
-	 * // # HELP temperature Current temperature
-	 * // temperature 23.5 1625097600
 	 */
 	getMetric(prefix?: string): string {
 		const name = this.getFullName(prefix);
-		const labels = this.formatLabels();
-		const updatedTimestamp = this.updated / 1000;
+		const lines = [this.metadata("gauge", prefix)];
 
-		return `${this.metadata("gauge", prefix)}\n${name}${labels} ${this.value} ${updatedTimestamp}`;
+		for (const [key, entry] of this.timeSeries) {
+			const labels = Object.fromEntries(JSON.parse(key));
+			const labelStr = this.formatLabels(labels);
+			const timestamp = entry.updated / 1000;
+			lines.push(`${name}${labelStr} ${entry.value} ${timestamp}`);
+		}
+
+		return lines.join("\n");
 	}
+}
+
+/**
+ * Interface for operating on a labeled gauge time series
+ * @typedef {Object} GaugeLabelInterface
+ * @property {function(number=): void} inc - Increment the gauge value
+ * @property {function(number=): void} dec - Decrement the gauge value
+ * @property {function(number): void} set - Set the gauge to a specific value
+ */
+interface GaugeLabelInterface {
+	inc(amount?: number): void;
+	dec(amount?: number): void;
+	set(value: number): void;
 }

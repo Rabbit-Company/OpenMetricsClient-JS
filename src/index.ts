@@ -7,9 +7,7 @@ const registry = new Registry({ prefix: "app" });
 const version = new Info({
 	name: "service_version",
 	help: "Current version of the application",
-	labels: {
-		version: "1.0.0",
-	},
+	labelNames: ["version"],
 	registry,
 });
 
@@ -26,7 +24,7 @@ const serviceStatus = new StateSet({
 	name: "service_status",
 	help: "Current operational status of the service",
 	states: ["running", "degraded", "stopped"],
-	labels: { instance: "api-server-1" },
+	labelNames: ["instance"],
 	registry,
 });
 
@@ -34,10 +32,7 @@ const serviceStatus = new StateSet({
 const httpRequestTotal = new Counter({
 	name: "http_requests_total",
 	help: "Total number of HTTP requests received",
-	labels: {
-		method: "GET",
-		endpoint: "/v1/health",
-	},
+	labelNames: ["method", "endpoint"],
 	registry,
 });
 
@@ -78,13 +73,20 @@ const requestDurationSummary = new Summary({
 	registry,
 });
 
+version.labels({ version: "1.0.0" }).set();
+
 setInterval(() => {
 	const latency = +(Math.random() * 500).toFixed(2); // ms
 	const size = Math.floor(Math.random() * 10000); // bytes
 	const duration = +(latency / 1000).toFixed(3); // seconds
 
-	serviceStatus.enableOnly("running");
-	httpRequestTotal.inc();
+	serviceStatus.labels({ instance: "api-server-1" }).enableOnly("running");
+	httpRequestTotal
+		.labels({
+			method: "GET",
+			endpoint: "/v1/health",
+		})
+		.inc();
 	cpuUsage.set(Math.round(Math.random() * 100));
 	httpRequestLatency.observe(latency);
 	httpRequestSize.observe(size);

@@ -7,39 +7,24 @@ class Registry {
     this.prefix = options?.prefix;
     this.autoRegister = options?.autoRegister ?? false;
   }
-  getMetricKey(metric) {
-    return `${metric.name}|${JSON.stringify(metric.labels)}`;
-  }
   register(metric) {
-    const key = this.getMetricKey(metric);
-    if (this.metrics.has(key)) {
-      throw new Error(`Metric with name ${metric.name} and labels ${JSON.stringify(metric.labels)} already registered`);
+    const name = metric.name;
+    if (this.metrics.has(name)) {
+      throw new Error(`Metric with name ${name} already registered`);
     }
-    this.metrics.set(key, metric);
+    this.metrics.set(name, metric);
     if (this.autoRegister) {
       metric.registry = this;
     }
   }
-  unregister(metric) {
-    const key = this.getMetricKey(metric);
-    return this.metrics.delete(key);
-  }
-  unregisterByName(name) {
-    let count = 0;
-    for (const [key, metric] of this.metrics) {
-      if (metric.name === name) {
-        this.metrics.delete(key);
-        count++;
-      }
-    }
-    return count;
+  unregister(name) {
+    return this.metrics.delete(name);
   }
   getMetrics() {
     return Array.from(this.metrics.values());
   }
-  getMetric(name, labels) {
-    const tempMetric = { name, labels };
-    return this.metrics.get(this.getMetricKey(tempMetric));
+  getMetric(name) {
+    return this.metrics.get(name);
   }
   metricsText() {
     return Array.from(this.metrics.values()).map((m) => m.getMetric(this.prefix)).join(`
@@ -55,7 +40,7 @@ class BaseMetric {
   name;
   help;
   unit;
-  labels;
+  labelNames;
   registry;
   constructor(options) {
     let name = options.name;
@@ -66,33 +51,39 @@ class BaseMetric {
     this.name = name;
     this.help = options.help;
     this.unit = unit;
-    this.labels = options.labels || {};
+    this.labelNames = options.labelNames || [];
+    this.validateLabelNames();
     if (options.registry) {
       this.registry = options.registry;
       this.registry.register(this);
     }
   }
-  validateLabels(labels) {
-    if (!labels)
-      return;
-    for (const [key, value] of Object.entries(labels)) {
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-        throw new Error(`Invalid label name: ${key}`);
+  validateLabelNames() {
+    for (const name of this.labelNames) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        throw new Error(`Invalid label name: ${name}`);
       }
-      if (typeof value !== "string") {
-        throw new Error(`Label value must be string for key: ${key}`);
+    }
+  }
+  validateLabels(labels = {}) {
+    const provided = Object.keys(labels);
+    for (const label of provided) {
+      if (!this.labelNames.includes(label)) {
+        throw new Error(`Unexpected label: ${label}`);
+      }
+    }
+    for (const name of this.labelNames) {
+      if (!(name in labels)) {
+        throw new Error(`Missing label: ${name}`);
       }
     }
   }
   getFullName(prefix) {
     return prefix ? `${prefix}_${this.name}` : this.name;
   }
-  formatLabels(labels) {
-    const allLabels = { ...this.labels, ...labels };
-    if (Object.keys(allLabels).length === 0)
-      return "";
-    const labelStrings = Object.entries(allLabels).map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
-    return `{${labelStrings.join(",")}}`;
+  formatLabels(labels = {}) {
+    const labelStrings = Object.entries(labels).map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
+    return labelStrings.length > 0 ? `{${labelStrings.join(",")}}` : "";
   }
   metadata(type, prefix) {
     const fullName = this.getFullName(prefix);
@@ -111,145 +102,235 @@ function escapeLabelValue(value) {
 
 // src/metrics/Counter.ts
 class Counter extends BaseMetric {
-  value = 0;
-  updated = Date.now();
-  created = Date.now();
+  timeSeries = new Map;
   constructor(options) {
     super(options);
-    this.validateLabels(options.labels);
+    const defaultKey = this.getTimeSeriesKey({});
+    this.timeSeries.set(defaultKey, {
+      value: 0,
+      created: Date.now(),
+      updated: Date.now()
+    });
   }
-  inc(amount = 1) {
-    if (amount < 0 || !Number.isFinite(amount))
-      return;
-    this.value += amount;
-    this.updated = Date.now();
+  inc(amount = 1, labels) {
+    if (amount < 0 || !Number.isFinite(amount)) {
+      throw new Error("Counter increment amount must be positive");
+    }
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const now = Date.now();
+    const entry = this.timeSeries.get(key) || { value: 0, created: now, updated: now };
+    entry.value += amount;
+    entry.updated = now;
+    this.timeSeries.set(key, entry);
   }
-  get() {
+  get(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const entry = this.timeSeries.get(key);
+    if (!entry) {
+      return { value: 0, created: new Date(0), updated: new Date(0) };
+    }
     return {
-      value: this.value,
-      updated: new Date(this.updated),
-      created: new Date(this.created)
+      value: entry.value,
+      created: new Date(entry.created),
+      updated: new Date(entry.updated)
     };
   }
-  reset() {
-    const changed = Date.now();
-    this.value = 0;
-    this.created = changed;
-    this.updated = changed;
+  reset(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const now = Date.now();
+    this.timeSeries.set(key, { value: 0, created: now, updated: now });
+  }
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      inc: (amount = 1) => this.inc(amount, labels)
+    };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sorted = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sorted);
   }
   getMetric(prefix) {
     const name = this.getFullName(prefix);
-    const labels = this.formatLabels();
-    const updatedTimestamp = this.updated / 1000;
-    const createdTimestamp = this.created / 1000;
-    return [
-      this.metadata("counter", prefix),
-      `${name}_total${labels} ${this.value} ${updatedTimestamp}`,
-      `${name}_created${labels} ${createdTimestamp} ${updatedTimestamp}`
-    ].join(`
+    const lines = [this.metadata("counter", prefix)];
+    for (const [key, entry] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      const updatedTimestamp = entry.updated / 1000;
+      lines.push(`${name}_total${labelStr} ${entry.value} ${updatedTimestamp}`);
+    }
+    for (const [key, entry] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      const createdTimestamp = entry.created / 1000;
+      const updatedTimestamp = entry.updated / 1000;
+      lines.push(`${name}_created${labelStr} ${createdTimestamp} ${updatedTimestamp}`);
+    }
+    return lines.join(`
 `);
   }
 }
 // src/metrics/Gauge.ts
 class Gauge extends BaseMetric {
-  value = 0;
-  updated = Date.now();
+  timeSeries = new Map;
   constructor(options) {
     super(options);
-    this.validateLabels(options.labels);
   }
-  inc(amount = 1) {
-    if (!Number.isFinite(amount))
-      return;
-    this.value += amount;
-    this.updated = Date.now();
+  inc(amount = 1, labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const entry = this.timeSeries.get(key) || { value: 0, updated: 0 };
+    entry.value += amount;
+    entry.updated = Date.now();
+    this.timeSeries.set(key, entry);
   }
-  dec(amount = 1) {
-    if (!Number.isFinite(amount))
-      return;
-    this.value -= amount;
-    this.updated = Date.now();
+  dec(amount = 1, labels) {
+    this.inc(-amount, labels);
   }
-  set(value) {
-    if (!Number.isFinite(value))
-      return;
-    this.value = value;
-    this.updated = Date.now();
+  set(value, labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    this.timeSeries.set(key, { value, updated: Date.now() });
   }
-  get() {
+  get(labels) {
+    const key = this.getTimeSeriesKey(labels);
+    const data = this.timeSeries.get(key);
+    if (!data)
+      return null;
     return {
-      value: this.value,
-      updated: new Date(this.updated)
+      value: data.value,
+      updated: new Date(data.updated)
+    };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sorted = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sorted);
+  }
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      inc: (amount = 1) => this.inc(amount, labels),
+      dec: (amount = 1) => this.dec(amount, labels),
+      set: (value) => this.set(value, labels)
     };
   }
   getMetric(prefix) {
     const name = this.getFullName(prefix);
-    const labels = this.formatLabels();
-    const updatedTimestamp = this.updated / 1000;
-    return `${this.metadata("gauge", prefix)}
-${name}${labels} ${this.value} ${updatedTimestamp}`;
+    const lines = [this.metadata("gauge", prefix)];
+    for (const [key, entry] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      const timestamp = entry.updated / 1000;
+      lines.push(`${name}${labelStr} ${entry.value} ${timestamp}`);
+    }
+    return lines.join(`
+`);
   }
 }
 // src/metrics/Histogram.ts
 class Histogram extends BaseMetric {
   buckets;
-  counts;
-  sum = 0;
-  count = 0;
-  updated = Date.now();
-  created = Date.now();
+  timeSeries = new Map;
   constructor(options) {
     super(options);
-    this.validateLabels(options.labels);
     const defaultBuckets = [0.1, 0.5, 1, 5, 10];
     this.buckets = (options.buckets || defaultBuckets).sort((a, b) => a - b);
     if (this.buckets.some((b) => b <= 0 || !Number.isFinite(b))) {
       throw new Error("Histogram buckets must be positive numbers");
     }
-    this.counts = new Map([...this.buckets.map((b) => [b.toString(), 0]), ["+Inf", 0]]);
   }
-  observe(value) {
-    if (value < 0 || !Number.isFinite(value))
-      return;
-    this.count++;
-    this.sum += value;
-    this.updated = Date.now();
+  initializeTimeSeries() {
+    const counts = new Map;
+    this.buckets.forEach((b) => counts.set(b.toString(), 0));
+    counts.set("+Inf", 0);
+    return {
+      counts,
+      sum: 0,
+      count: 0,
+      created: Date.now(),
+      updated: Date.now()
+    };
+  }
+  observe(value, labels) {
+    if (value < 0 || !Number.isFinite(value)) {
+      throw new Error("Histogram observation value must be non-negative and finite");
+    }
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const now = Date.now();
+    if (!this.timeSeries.has(key)) {
+      this.timeSeries.set(key, this.initializeTimeSeries());
+    }
+    const series = this.timeSeries.get(key);
+    series.count++;
+    series.sum += value;
+    series.updated = now;
     for (const bucket of this.buckets) {
       if (value <= bucket) {
-        this.counts.set(bucket.toString(), (this.counts.get(bucket.toString()) ?? 0) + 1);
+        const bucketKey = bucket.toString();
+        series.counts.set(bucketKey, (series.counts.get(bucketKey) || 0) + 1);
       }
     }
-    this.counts.set("+Inf", (this.counts.get("+Inf") ?? 0) + 1);
+    series.counts.set("+Inf", (series.counts.get("+Inf") || 0) + 1);
   }
-  reset() {
-    this.count = 0;
-    this.sum = 0;
-    this.updated = Date.now();
-    this.created = Date.now();
-    for (const key of this.counts.keys()) {
-      this.counts.set(key, 0);
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      observe: (value) => this.observe(value, labels)
+    };
+  }
+  reset(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    this.timeSeries.set(key, this.initializeTimeSeries());
+  }
+  getSnapshot(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const series = this.timeSeries.get(key);
+    if (!series) {
+      const emptyCounts = new Map;
+      this.buckets.forEach((b) => emptyCounts.set(b.toString(), 0));
+      emptyCounts.set("+Inf", 0);
+      return {
+        buckets: this.buckets,
+        counts: emptyCounts,
+        sum: 0,
+        count: 0,
+        created: new Date(0),
+        updated: new Date(0)
+      };
     }
-  }
-  getMetric(prefix) {
-    const fullName = this.getFullName(prefix);
-    const labels = this.formatLabels();
-    const lines = [this.metadata("histogram", prefix)];
-    for (const bucket of this.buckets) {
-      lines.push(`${fullName}_bucket{le="${bucket}"} ${this.counts.get(bucket.toString()) ?? 0}`);
-    }
-    lines.push(`${fullName}_bucket{le="+Inf"} ${this.counts.get("+Inf") ?? 0}`, `${fullName}_count ${this.count}`, `${fullName}_sum ${this.sum}`, `${fullName}_created ${this.created / 1000}`);
-    return lines.join(`
-`);
-  }
-  getSnapshot() {
     return {
       buckets: this.buckets,
-      counts: this.counts,
-      sum: this.sum,
-      count: this.count,
-      created: new Date(this.created),
-      updated: new Date(this.updated)
+      counts: new Map(series.counts),
+      sum: series.sum,
+      count: series.count,
+      created: new Date(series.created),
+      updated: new Date(series.updated)
     };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
+  }
+  getMetric(prefix) {
+    const name = this.getFullName(prefix);
+    const lines = [this.metadata("histogram", prefix)];
+    for (const [key, series] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      const createdTimestamp = series.created / 1000;
+      this.buckets.forEach((bucket) => {
+        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+      });
+      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`, `${name}_count${labelStr} ${series.count}`, `${name}_sum${labelStr} ${series.sum}`, `${name}_created${labelStr} ${createdTimestamp}`);
+    }
+    return lines.join(`
+`);
   }
 }
 // src/metrics/Summary.ts
@@ -257,24 +338,13 @@ class Summary extends BaseMetric {
   quantiles;
   maxAgeSeconds;
   ageBuckets;
-  buckets;
-  currentBucket;
-  rotationInterval;
-  sum = 0;
-  count = 0;
-  updated = Date.now();
-  created = Date.now();
-  isDestroyed = false;
+  timeSeries = new Map;
   constructor(options) {
     super(options);
     this.quantiles = options.quantiles || [0.5, 0.9, 0.99];
     this.maxAgeSeconds = options.maxAgeSeconds || 600;
     this.ageBuckets = options.ageBuckets || 5;
     this.validateQuantiles();
-    this.buckets = [];
-    this.currentBucket = this.createBucket();
-    this.rotationInterval = setInterval(() => this.rotateBuckets(), this.maxAgeSeconds * 1000 / this.ageBuckets);
-    this.rotationInterval.unref?.();
   }
   createBucket() {
     return { values: [], sum: 0, count: 0, timestamp: Date.now() };
@@ -285,166 +355,284 @@ class Summary extends BaseMetric {
         throw new Error(`Quantile ${q} must be between 0 and 1`);
     }
   }
-  rotateBuckets() {
-    if (this.isDestroyed)
+  initializeTimeSeries(key) {
+    const rotationInterval = setInterval(() => this.rotateBuckets(key), this.maxAgeSeconds * 1000 / this.ageBuckets);
+    rotationInterval.unref?.();
+    return {
+      buckets: [],
+      currentBucket: this.createBucket(),
+      sum: 0,
+      count: 0,
+      created: Date.now(),
+      updated: Date.now(),
+      rotationInterval
+    };
+  }
+  rotateBuckets(key) {
+    const series = this.timeSeries.get(key);
+    if (!series)
       return;
-    this.buckets.push(this.currentBucket);
+    series.buckets.push(series.currentBucket);
     const cutoff = Date.now() - this.maxAgeSeconds * 1000;
-    this.buckets = this.buckets.filter((b) => b.timestamp >= cutoff);
-    this.recalculateAggregates();
-    this.currentBucket = this.createBucket();
-    this.updated = Date.now();
+    series.buckets = series.buckets.filter((b) => b.timestamp >= cutoff);
+    this.recalculateAggregates(series);
+    series.currentBucket = this.createBucket();
+    series.updated = Date.now();
   }
-  recalculateAggregates() {
-    this.sum = this.buckets.reduce((sum, b) => sum + b.sum, 0);
-    this.count = this.buckets.reduce((count, b) => count + b.count, 0);
+  recalculateAggregates(series) {
+    series.sum = series.buckets.reduce((sum, b) => sum + b.sum, 0);
+    series.count = series.buckets.reduce((count, b) => count + b.count, 0);
   }
-  observe(value) {
-    if (this.isDestroyed || !Number.isFinite(value) || value < 0)
-      return;
-    this.currentBucket.values.push(value);
-    this.currentBucket.sum += value;
-    this.currentBucket.count++;
-    this.sum += value;
-    this.count++;
-    this.updated = Date.now();
+  observe(value, labels) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error("Summary observation value must be finite and non-negative");
+    }
+    const safeLabels = labels || {};
+    this.validateLabels(safeLabels);
+    const key = this.getTimeSeriesKey(safeLabels);
+    if (!this.timeSeries.has(key)) {
+      this.timeSeries.set(key, this.initializeTimeSeries(key));
+    }
+    const series = this.timeSeries.get(key);
+    series.currentBucket.values.push(value);
+    series.currentBucket.sum += value;
+    series.currentBucket.count++;
+    series.sum += value;
+    series.count++;
+    series.updated = Date.now();
   }
-  reset() {
-    this.buckets = [];
-    this.currentBucket = this.createBucket();
-    this.sum = 0;
-    this.count = 0;
-    this.updated = Date.now();
-    this.created = Date.now();
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      observe: (value) => this.observe(value, labels)
+    };
+  }
+  reset(labels) {
+    const safeLabels = labels || {};
+    this.validateLabels(safeLabels);
+    const key = this.getTimeSeriesKey(safeLabels);
+    if (this.timeSeries.has(key)) {
+      const series = this.timeSeries.get(key);
+      clearInterval(series.rotationInterval);
+      this.timeSeries.set(key, this.initializeTimeSeries(key));
+    }
+  }
+  getSnapshot(labels) {
+    const safeLabels = labels || {};
+    this.validateLabels(safeLabels);
+    const key = this.getTimeSeriesKey(safeLabels);
+    const series = this.timeSeries.get(key);
+    if (!series) {
+      return {
+        sum: 0,
+        count: 0,
+        buckets: 0,
+        currentBucketSize: 0,
+        maxAgeSeconds: this.maxAgeSeconds,
+        updated: new Date(0),
+        created: new Date(0)
+      };
+    }
+    return {
+      sum: series.sum,
+      count: series.count,
+      buckets: series.buckets.length,
+      currentBucketSize: series.currentBucket.values.length,
+      maxAgeSeconds: this.maxAgeSeconds,
+      updated: new Date(series.updated),
+      created: new Date(series.created)
+    };
+  }
+  getTimeSeriesKey(labels) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
   }
   getMetric(prefix) {
     const fullName = this.getFullName(prefix);
     const lines = [this.metadata("summary", prefix)];
-    const createdTimestamp = this.created / 1000;
-    const updatedTimestamp = this.updated / 1000;
-    const allValues = this.buckets.concat([this.currentBucket]).flatMap((b) => b.values);
-    if (allValues.length > 0) {
-      const sortedValues = [...allValues].sort((a, b) => a - b);
-      for (const q of this.quantiles) {
-        const pos = q * (sortedValues.length - 1);
-        const base = Math.floor(pos);
-        const rest = pos - base;
-        const value = base + 1 < sortedValues.length ? sortedValues[base] + rest * (sortedValues[base + 1] - sortedValues[base]) : sortedValues[base];
-        lines.push(`${fullName}{quantile="${q}"} ${value}`);
+    for (const [key, series] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      const createdTimestamp = series.created / 1000;
+      const allValues = series.buckets.concat([series.currentBucket]).flatMap((b) => b.values);
+      if (allValues.length > 0) {
+        const sortedValues = [...allValues].sort((a, b) => a - b);
+        for (const q of this.quantiles) {
+          const pos = q * (sortedValues.length - 1);
+          const base = Math.floor(pos);
+          const rest = pos - base;
+          const baseValue = sortedValues[base];
+          const nextValue = sortedValues[base + 1];
+          let value = NaN;
+          if (baseValue !== undefined) {
+            value = nextValue !== undefined ? baseValue + rest * (nextValue - baseValue) : baseValue;
+          }
+          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} ${value}`);
+        }
+      } else {
+        for (const q of this.quantiles) {
+          lines.push(`${fullName}{quantile="${q}"${labelStr ? "," + labelStr.slice(1) : ""}} NaN`);
+        }
       }
-    } else {
-      for (const q of this.quantiles) {
-        lines.push(`${fullName}{quantile="${q}"} NaN`);
-      }
+      lines.push(`${fullName}_sum${labelStr} ${series.sum}`, `${fullName}_count${labelStr} ${series.count}`, `${fullName}_created${labelStr} ${createdTimestamp}`);
     }
-    lines.push(`${fullName}_sum ${this.sum}`, `${fullName}_count ${this.count}`, `${fullName}_created ${createdTimestamp}`);
     return lines.join(`
 `);
   }
-  getSnapshot() {
-    return {
-      sum: this.sum,
-      count: this.count,
-      buckets: this.buckets.length,
-      currentBucketSize: this.currentBucket.values.length,
-      maxAgeSeconds: this.maxAgeSeconds,
-      updated: new Date(this.updated),
-      created: new Date(this.created)
-    };
-  }
   destroy() {
-    if (this.isDestroyed)
-      return;
-    this.isDestroyed = true;
-    clearInterval(this.rotationInterval);
-    this.reset();
+    for (const series of this.timeSeries.values()) {
+      clearInterval(series.rotationInterval);
+    }
+    this.timeSeries.clear();
   }
 }
 // src/metrics/GaugeHistogram.ts
 class GaugeHistogram extends BaseMetric {
   buckets;
-  counts;
-  sum = 0;
-  count = 0;
-  updated = Date.now();
-  created = Date.now();
+  timeSeries = new Map;
   constructor(options) {
     super(options);
-    this.validateLabels(options.labels);
     const defaultBuckets = [0.1, 0.5, 1, 5, 10];
     this.buckets = (options.buckets || defaultBuckets).sort((a, b) => a - b);
     if (this.buckets.some((b) => b <= 0 || !Number.isFinite(b))) {
       throw new Error("GaugeHistogram buckets must be positive numbers");
     }
-    this.counts = new Map([...this.buckets.map((b) => [b.toString(), 0]), ["+Inf", 0]]);
   }
-  observe(value) {
-    if (!Number.isFinite(value))
-      return;
-    this.count++;
-    this.sum += value;
-    this.updated = Date.now();
+  initializeTimeSeries() {
+    const counts = new Map;
+    this.buckets.forEach((b) => counts.set(b.toString(), 0));
+    counts.set("+Inf", 0);
+    return {
+      counts,
+      sum: 0,
+      count: 0,
+      created: Date.now(),
+      updated: Date.now()
+    };
+  }
+  observe(value, labels) {
+    if (!Number.isFinite(value)) {
+      throw new Error("GaugeHistogram observation value must be finite");
+    }
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const now = Date.now();
+    if (!this.timeSeries.has(key)) {
+      this.timeSeries.set(key, this.initializeTimeSeries());
+    }
+    const series = this.timeSeries.get(key);
+    series.count++;
+    series.sum += value;
+    series.updated = now;
     for (const bucket of this.buckets) {
       if (value <= bucket) {
-        this.counts.set(bucket.toString(), (this.counts.get(bucket.toString()) ?? 0) + 1);
+        const bucketKey = bucket.toString();
+        series.counts.set(bucketKey, (series.counts.get(bucketKey) || 0) + 1);
       }
     }
-    this.counts.set("+Inf", (this.counts.get("+Inf") ?? 0) + 1);
+    series.counts.set("+Inf", (series.counts.get("+Inf") || 0) + 1);
   }
-  reset() {
-    this.count = 0;
-    this.sum = 0;
-    this.updated = Date.now();
-    this.created = Date.now();
-    for (const key of this.counts.keys()) {
-      this.counts.set(key, 0);
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      observe: (value) => this.observe(value, labels)
+    };
+  }
+  reset(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    this.timeSeries.set(key, this.initializeTimeSeries());
+  }
+  getSnapshot(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    const series = this.timeSeries.get(key);
+    if (!series) {
+      const emptyCounts = new Map;
+      this.buckets.forEach((b) => emptyCounts.set(b.toString(), 0));
+      emptyCounts.set("+Inf", 0);
+      return {
+        buckets: this.buckets,
+        counts: emptyCounts,
+        sum: 0,
+        count: 0,
+        created: new Date(0),
+        updated: new Date(0)
+      };
     }
+    return {
+      buckets: this.buckets,
+      counts: new Map(series.counts),
+      sum: series.sum,
+      count: series.count,
+      created: new Date(series.created),
+      updated: new Date(series.updated)
+    };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
   }
   getMetric(prefix) {
     const name = this.getFullName(prefix);
-    const labels = this.formatLabels();
     const lines = [this.metadata("gaugehistogram", prefix)];
-    for (const bucket of this.buckets) {
-      lines.push(`${name}_bucket{le="${bucket}"} ${this.counts.get(bucket.toString()) ?? 0}`);
+    for (const [key, series] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      this.buckets.forEach((bucket) => {
+        lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+      });
+      lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`);
+      lines.push(`${name}_gsum${labelStr} ${series.sum}`, `${name}_gcount${labelStr} ${series.count}`);
     }
-    lines.push(`${name}_bucket{le="+Inf"} ${this.counts.get("+Inf") ?? 0}`, `${name}_gcount ${this.count}`, `${name}_gsum ${this.sum}`);
     return lines.join(`
 `);
-  }
-  getSnapshot() {
-    return {
-      buckets: this.buckets,
-      counts: this.counts,
-      sum: this.sum,
-      count: this.count,
-      created: new Date(this.created),
-      updated: new Date(this.updated)
-    };
   }
 }
 // src/metrics/Info.ts
 class Info extends BaseMetric {
+  timeSeries = new Set;
   constructor(options) {
     super(options);
-    this.validateLabels(options.labels);
+  }
+  set(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    this.timeSeries.add(key);
+  }
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      set: () => this.set(labels)
+    };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
   }
   getMetric(prefix) {
     const name = this.getFullName(prefix);
-    const labels = this.formatLabels();
-    return `${this.metadata("info", prefix)}
-${name}_info${labels} 1`;
+    const lines = [this.metadata("info", prefix)];
+    for (const key of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      lines.push(`${name}_info${labelStr} 1`);
+    }
+    return lines.join(`
+`);
   }
 }
 // src/metrics/StateSet.ts
 class StateSet extends BaseMetric {
-  states;
+  stateNames;
+  timeSeries = new Map;
   constructor(options) {
     if (options.unit && options.unit !== "") {
       throw new Error("StateSet metrics must have an empty unit string");
     }
     super({ ...options, unit: "" });
     this.validateStates(options.states);
-    this.states = Object.fromEntries(options.states.map((s) => [s, false]));
+    this.stateNames = options.states;
   }
   validateStates(states) {
     if (states.length === 0) {
@@ -461,26 +649,58 @@ class StateSet extends BaseMetric {
       }
     }
   }
-  setState(state, value) {
-    if (!this.states.hasOwnProperty(state)) {
-      throw new Error(`Unknown state: ${state}`);
-    }
-    this.states[state] = value;
+  initializeStateSet() {
+    return {
+      states: Object.fromEntries(this.stateNames.map((s) => [s, false]))
+    };
   }
-  enableOnly(state) {
-    if (!this.states.hasOwnProperty(state)) {
+  setState(state, value, labels) {
+    this.validateLabels(labels);
+    if (!this.stateNames.includes(state)) {
       throw new Error(`Unknown state: ${state}`);
     }
-    for (const s of Object.keys(this.states)) {
-      this.states[s] = s === state;
+    const key = this.getTimeSeriesKey(labels);
+    if (!this.timeSeries.has(key)) {
+      this.timeSeries.set(key, this.initializeStateSet());
     }
+    this.timeSeries.get(key).states[state] = value;
+  }
+  enableOnly(state, labels) {
+    this.validateLabels(labels);
+    if (!this.stateNames.includes(state)) {
+      throw new Error(`Unknown state: ${state}`);
+    }
+    const key = this.getTimeSeriesKey(labels);
+    if (!this.timeSeries.has(key)) {
+      this.timeSeries.set(key, this.initializeStateSet());
+    }
+    const series = this.timeSeries.get(key);
+    for (const s of this.stateNames) {
+      series.states[s] = s === state;
+    }
+  }
+  labels(labels) {
+    this.validateLabels(labels);
+    return {
+      setState: (state, value) => this.setState(state, value, labels),
+      enableOnly: (state) => this.enableOnly(state, labels)
+    };
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
   }
   getMetric(prefix) {
     const lines = [this.metadata("stateset", prefix)];
     const metricName = this.getFullName(prefix);
-    for (const [state, value] of Object.entries(this.states)) {
-      const labels = this.formatLabels({ [this.name]: state });
-      lines.push(`${metricName}${labels} ${value ? 1 : 0}`);
+    for (const [key, series] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const baseLabelStr = this.formatLabels(labels);
+      for (const [state, value] of Object.entries(series.states)) {
+        const stateLabel = { [this.name]: state };
+        const fullLabelStr = this.formatLabels({ ...labels, ...stateLabel });
+        lines.push(`${metricName}${fullLabelStr} ${value ? 1 : 0}`);
+      }
     }
     return lines.join(`
 `);
@@ -488,17 +708,50 @@ class StateSet extends BaseMetric {
 }
 // src/metrics/Unknown.ts
 class Unknown extends BaseMetric {
-  value;
+  timeSeries = new Map;
   constructor(options) {
     super(options);
-    this.value = options.value || 0;
+    if (options.value !== undefined) {
+      const defaultKey = this.getTimeSeriesKey({});
+      this.timeSeries.set(defaultKey, {
+        value: options.value,
+        updated: Date.now()
+      });
+    }
   }
-  set(value) {
-    this.value = value;
+  set(value, labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    this.timeSeries.set(key, {
+      value,
+      updated: Date.now()
+    });
+  }
+  labels(labels = {}) {
+    this.validateLabels(labels);
+    return {
+      set: (value) => this.set(value, labels)
+    };
+  }
+  get(labels) {
+    this.validateLabels(labels);
+    const key = this.getTimeSeriesKey(labels);
+    return this.timeSeries.get(key)?.value;
+  }
+  getTimeSeriesKey(labels = {}) {
+    const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify(sortedEntries);
   }
   getMetric(prefix) {
-    return `${this.metadata("unknown", prefix)}
-${this.getFullName(prefix)} ${this.value}`;
+    const name = this.getFullName(prefix);
+    const lines = [this.metadata("unknown", prefix)];
+    for (const [key, series] of this.timeSeries) {
+      const labels = Object.fromEntries(JSON.parse(key));
+      const labelStr = this.formatLabels(labels);
+      lines.push(`${name}${labelStr} ${series.value}`);
+    }
+    return lines.join(`
+`);
   }
 }
 export {

@@ -28,11 +28,11 @@ export abstract class BaseMetric {
 	 */
 	public readonly unit?: string;
 	/**
-	 * Key-value pairs of metric labels
+	 * Array of allowed label names for this metric
 	 * @public
 	 * @readonly
 	 */
-	public readonly labels: Record<string, string>;
+	public readonly labelNames: string[];
 	/**
 	 * Reference to the registry this metric is registered with (if any)
 	 * @public
@@ -43,7 +43,7 @@ export abstract class BaseMetric {
 	 * Creates a new BaseMetric instance
 	 * @constructor
 	 * @param {MetricOptions} options - Configuration options for the metric
-	 * @throws {Error} If label validation fails
+	 * @throws {Error} If label name validation fails
 	 */
 	constructor(options: MetricOptions) {
 		let name = options.name;
@@ -56,7 +56,9 @@ export abstract class BaseMetric {
 		this.name = name;
 		this.help = options.help;
 		this.unit = unit;
-		this.labels = options.labels || {};
+		this.labelNames = options.labelNames || [];
+
+		this.validateLabelNames();
 
 		if (options.registry) {
 			this.registry = options.registry;
@@ -65,19 +67,38 @@ export abstract class BaseMetric {
 	}
 
 	/**
-	 * Validates metric label names and values
-	 * @protected
-	 * @param {Record<string, string>} [labels] - Labels to validate
-	 * @throws {Error} If any label name is invalid or value is not a string
+	 * Validates metric label names
+	 * @private
+	 * @throws {Error} If any label name is invalid
 	 */
-	protected validateLabels(labels?: Record<string, string>): void {
-		if (!labels) return;
-		for (const [key, value] of Object.entries(labels)) {
-			if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-				throw new Error(`Invalid label name: ${key}`);
+	private validateLabelNames(): void {
+		for (const name of this.labelNames) {
+			if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+				throw new Error(`Invalid label name: ${name}`);
 			}
-			if (typeof value !== "string") {
-				throw new Error(`Label value must be string for key: ${key}`);
+		}
+	}
+
+	/**
+	 * Validates provided label values against expected label names
+	 * @protected
+	 * @param {Record<string, string>} labels - Labels to validate
+	 * @throws {Error} If labels don't match expected label names
+	 */
+	protected validateLabels(labels: Record<string, string> = {}): void {
+		const provided = Object.keys(labels);
+
+		// Check for extra labels
+		for (const label of provided) {
+			if (!this.labelNames.includes(label)) {
+				throw new Error(`Unexpected label: ${label}`);
+			}
+		}
+
+		// Check all labelNames are provided
+		for (const name of this.labelNames) {
+			if (!(name in labels)) {
+				throw new Error(`Missing label: ${name}`);
 			}
 		}
 	}
@@ -96,15 +117,12 @@ export abstract class BaseMetric {
 	/**
 	 * Formats labels for OpenMetrics output
 	 * @protected
-	 * @param {Record<string, string>} [labels] - Additional labels to include
+	 * @param {Record<string, string>} labels - Labels to format
 	 * @returns {string} Formatted label string in OpenMetrics format
 	 */
-	protected formatLabels(labels?: Record<string, string>): string {
-		const allLabels = { ...this.labels, ...labels };
-		if (Object.keys(allLabels).length === 0) return "";
-
-		const labelStrings = Object.entries(allLabels).map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
-		return `{${labelStrings.join(",")}}`;
+	protected formatLabels(labels: Record<string, string> = {}): string {
+		const labelStrings = Object.entries(labels).map(([k, v]) => `${k}="${escapeLabelValue(v)}"`);
+		return labelStrings.length > 0 ? `{${labelStrings.join(",")}}` : "";
 	}
 
 	/**

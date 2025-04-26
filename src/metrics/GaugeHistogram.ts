@@ -3,21 +3,24 @@ import { BaseMetric } from "./BaseMetric";
 
 /**
  * A GaugeHistogram metric that tracks observations in configurable buckets
- * and provides both bucket counts and sum of observed values.
+ * with support for multiple time series via dynamic labels.
  *
  * Unlike regular histograms, GaugeHistograms can decrease in value and are
  * typically used for measurements that can go up or down like queue sizes
  * or memory usage.
- *
  * @class GaugeHistogram
  * @extends BaseMetric
  * @example
  * const gh = new GaugeHistogram({
  *   name: 'request_size_bytes',
  *   help: 'Size of HTTP requests',
+ *   labelNames: ['method'],
  *   buckets: [100, 500, 1000]
  * });
- * gh.observe(250);
+ *
+ * // Record observations with labels
+ * gh.labels({ method: 'GET' }).observe(250);
+ * gh.labels({ method: 'POST' }).observe(750);
  */
 export class GaugeHistogram extends BaseMetric {
 	/**
@@ -26,32 +29,21 @@ export class GaugeHistogram extends BaseMetric {
 	 * @readonly
 	 */
 	private readonly buckets: number[];
+
 	/**
-	 * Map of bucket counts (key = bucket upper bound as string)
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private counts: Map<string, number>;
-	/**
-	 * Sum of all observed values
-	 * @private
-	 */
-	private sum: number = 0;
-	/**
-	 * Total number of observations
-	 * @private
-	 */
-	private count: number = 0;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated: number = Date.now();
-	/**
-	 * Timestamp of creation (in milliseconds since epoch)
-	 * @private
-	 * @readonly
-	 */
-	private created: number = Date.now();
+	private timeSeries: Map<
+		string,
+		{
+			counts: Map<string, number>;
+			sum: number;
+			count: number;
+			created: number;
+			updated: number;
+		}
+	> = new Map();
 
 	/**
 	 * Creates a new GaugeHistogram instance
@@ -61,7 +53,6 @@ export class GaugeHistogram extends BaseMetric {
 	 */
 	constructor(options: MetricOptions & { buckets?: number[] }) {
 		super(options);
-		this.validateLabels(options.labels);
 
 		const defaultBuckets = [0.1, 0.5, 1, 5, 10];
 		this.buckets = (options.buckets || defaultBuckets).sort((a, b) => a - b);
@@ -69,46 +60,142 @@ export class GaugeHistogram extends BaseMetric {
 		if (this.buckets.some((b) => b <= 0 || !Number.isFinite(b))) {
 			throw new Error("GaugeHistogram buckets must be positive numbers");
 		}
-
-		this.counts = new Map([...this.buckets.map((b) => [b.toString(), 0] as [string, number]), ["+Inf", 0]]);
 	}
 
 	/**
-	 * Records a new observation in the histogram
-	 * @param {number} value - The value to observe
-	 * @returns {void}
-	 * @example
-	 * gh.observe(0.8); // Records a value in the appropriate buckets
+	 * Initializes a new time series with zero values
+	 * @private
+	 * @returns {Object} Initialized time series data structure
 	 */
-	observe(value: number): void {
-		if (!Number.isFinite(value)) return;
+	private initializeTimeSeries(): {
+		counts: Map<string, number>;
+		sum: number;
+		count: number;
+		created: number;
+		updated: number;
+	} {
+		const counts = new Map<string, number>();
+		this.buckets.forEach((b) => counts.set(b.toString(), 0));
+		counts.set("+Inf", 0);
 
-		this.count++;
-		this.sum += value;
-		this.updated = Date.now();
+		return {
+			counts,
+			sum: 0,
+			count: 0,
+			created: Date.now(),
+			updated: Date.now(),
+		};
+	}
+
+	/**
+	 * Records a new observation in the histogram for specific labels
+	 * @param {number} value - The value to observe
+	 * @param {Record<string, string>} labels - Label values for this observation
+	 * @throws {Error} If value is not finite or labels are invalid
+	 * @example
+	 * gh.observe(250, { method: 'GET' });
+	 */
+	observe(value: number, labels?: Record<string, string>): void {
+		if (!Number.isFinite(value)) {
+			throw new Error("GaugeHistogram observation value must be finite");
+		}
+
+		this.validateLabels(labels);
+		const key = this.getTimeSeriesKey(labels);
+		const now = Date.now();
+
+		if (!this.timeSeries.has(key)) {
+			this.timeSeries.set(key, this.initializeTimeSeries());
+		}
+
+		const series = this.timeSeries.get(key)!;
+		series.count++;
+		series.sum += value;
+		series.updated = now;
 
 		for (const bucket of this.buckets) {
 			if (value <= bucket) {
-				this.counts.set(bucket.toString(), (this.counts.get(bucket.toString()) ?? 0) + 1);
+				const bucketKey = bucket.toString();
+				series.counts.set(bucketKey, (series.counts.get(bucketKey) || 0) + 1);
 			}
 		}
-
-		this.counts.set("+Inf", (this.counts.get("+Inf") ?? 0) + 1);
+		series.counts.set("+Inf", (series.counts.get("+Inf") || 0) + 1);
 	}
 
 	/**
-	 * Resets all histogram values to zero
-	 * @returns {void}
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {GaugeHistogramLabelInterface} Interface with observe method
+	 * @example
+	 * const labeledHistogram = gh.labels({ method: 'GET' });
+	 * labeledHistogram.observe(250);
 	 */
-	reset(): void {
-		this.count = 0;
-		this.sum = 0;
-		this.updated = Date.now();
-		this.created = Date.now();
+	labels(labels: Record<string, string> = {}): GaugeHistogramLabelInterface {
+		this.validateLabels(labels);
+		return {
+			observe: (value: number) => this.observe(value, labels),
+		};
+	}
 
-		for (const key of this.counts.keys()) {
-			this.counts.set(key, 0);
+	/**
+	 * Resets all histogram values to zero for specific labels
+	 * @param {Record<string, string>} labels - Label values to reset
+	 * @example
+	 * gh.reset({ method: 'GET' });
+	 */
+	reset(labels?: Record<string, string>): void {
+		this.validateLabels(labels);
+		const key = this.getTimeSeriesKey(labels);
+		this.timeSeries.set(key, this.initializeTimeSeries());
+	}
+
+	/**
+	 * Gets a snapshot of current histogram state for specific labels
+	 * @param {Record<string, string>} labels - Label values to get
+	 * @returns {GaugeHistogramData} Current histogram data including buckets and counts
+	 * @example
+	 * const snapshot = gh.getSnapshot({ method: 'GET' });
+	 * console.log(snapshot.sum, snapshot.count);
+	 */
+	getSnapshot(labels?: Record<string, string>): GaugeHistogramData {
+		this.validateLabels(labels);
+		const key = this.getTimeSeriesKey(labels);
+		const series = this.timeSeries.get(key);
+
+		if (!series) {
+			const emptyCounts = new Map<string, number>();
+			this.buckets.forEach((b) => emptyCounts.set(b.toString(), 0));
+			emptyCounts.set("+Inf", 0);
+
+			return {
+				buckets: this.buckets,
+				counts: emptyCounts,
+				sum: 0,
+				count: 0,
+				created: new Date(0),
+				updated: new Date(0),
+			};
 		}
+
+		return {
+			buckets: this.buckets,
+			counts: new Map(series.counts),
+			sum: series.sum,
+			count: series.count,
+			created: new Date(series.created),
+			updated: new Date(series.updated),
+		};
+	}
+
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey(labels: Record<string, string> = {}): string {
+		const sortedEntries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b));
+		return JSON.stringify(sortedEntries);
 	}
 
 	/**
@@ -119,41 +206,42 @@ export class GaugeHistogram extends BaseMetric {
 	 * @example
 	 * console.log(gh.getMetric());
 	 * // # TYPE request_size_bytes gaugehistogram
-	 * // request_size_bytes_bucket{le="100"} 0
-	 * // request_size_bytes_bucket{le="500"} 1
-	 * // request_size_bytes_bucket{le="+Inf"} 1
-	 * // request_size_bytes_gcount 1
-	 * // request_size_bytes_gsum 250
+	 * // request_size_bytes_bucket{le="100",method="GET"} 0
+	 * // request_size_bytes_bucket{le="500",method="GET"} 1
+	 * // request_size_bytes_bucket{le="+Inf",method="GET"} 1
+	 * // request_size_bytes_gsum{method="GET"} 250
+	 * // request_size_bytes_gcount{method="GET"} 1
 	 */
 	getMetric(prefix?: string): string {
 		const name = this.getFullName(prefix);
-		const labels = this.formatLabels();
 		const lines: string[] = [this.metadata("gaugehistogram", prefix)];
 
-		for (const bucket of this.buckets) {
-			lines.push(`${name}_bucket{le="${bucket}"} ${this.counts.get(bucket.toString()) ?? 0}`);
-		}
+		for (const [key, series] of this.timeSeries) {
+			const labels = Object.fromEntries(JSON.parse(key));
+			const labelStr = this.formatLabels(labels);
 
-		lines.push(`${name}_bucket{le="+Inf"} ${this.counts.get("+Inf") ?? 0}`, `${name}_gcount ${this.count}`, `${name}_gsum ${this.sum}`);
+			this.buckets.forEach((bucket) => {
+				lines.push(`${name}_bucket{le="${bucket}"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get(bucket.toString()) || 0}`);
+			});
+
+			lines.push(`${name}_bucket{le="+Inf"${labelStr ? "," + labelStr.slice(1) : ""}} ${series.counts.get("+Inf") || 0}`);
+
+			lines.push(`${name}_gsum${labelStr} ${series.sum}`, `${name}_gcount${labelStr} ${series.count}`);
+		}
 
 		return lines.join("\n");
 	}
+}
 
+/**
+ * Interface for operating on a labeled gauge histogram time series
+ * @interface GaugeHistogramLabelInterface
+ * @property {function(number): void} observe - Records a value in the histogram
+ */
+interface GaugeHistogramLabelInterface {
 	/**
-	 * Gets a snapshot of current histogram state
-	 * @returns {GaugeHistogramData} Current histogram data including buckets and counts
-	 * @example
-	 * const snapshot = gh.getSnapshot();
-	 * console.log(snapshot.sum, snapshot.count);
+	 * Records a value in the histogram
+	 * @param {number} value - The value to observe
 	 */
-	getSnapshot(): GaugeHistogramData {
-		return {
-			buckets: this.buckets,
-			counts: this.counts,
-			sum: this.sum,
-			count: this.count,
-			created: new Date(this.created),
-			updated: new Date(this.updated),
-		};
-	}
+	observe(value: number): void;
 }

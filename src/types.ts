@@ -48,11 +48,11 @@ export interface MetricOptions {
 	unit?: string;
 
 	/**
-	 * Key-value pairs of metric labels
-	 * @type {Record<string, string>}
-	 * @example { method: "GET", status: "200" }
+	 * Array of metric label names
+	 * @type {string[]}
+	 * @example ["method", "endpoint"]
 	 */
-	labels?: Record<string, string>;
+	labelNames?: string[];
 
 	/**
 	 * Optional registry to automatically register this metric

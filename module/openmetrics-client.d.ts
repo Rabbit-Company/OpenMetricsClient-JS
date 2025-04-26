@@ -41,11 +41,11 @@ export interface MetricOptions {
 	 */
 	unit?: string;
 	/**
-	 * Key-value pairs of metric labels
-	 * @type {Record<string, string>}
-	 * @example { method: "GET", status: "200" }
+	 * Array of metric label names
+	 * @type {string[]}
+	 * @example ["method", "endpoint"]
 	 */
-	labels?: Record<string, string>;
+	labelNames?: string[];
 	/**
 	 * Optional registry to automatically register this metric
 	 * @type {Registry}
@@ -273,11 +273,11 @@ declare abstract class BaseMetric {
 	 */
 	readonly unit?: string;
 	/**
-	 * Key-value pairs of metric labels
+	 * Array of allowed label names for this metric
 	 * @public
 	 * @readonly
 	 */
-	readonly labels: Record<string, string>;
+	readonly labelNames: string[];
 	/**
 	 * Reference to the registry this metric is registered with (if any)
 	 * @public
@@ -287,14 +287,20 @@ declare abstract class BaseMetric {
 	 * Creates a new BaseMetric instance
 	 * @constructor
 	 * @param {MetricOptions} options - Configuration options for the metric
-	 * @throws {Error} If label validation fails
+	 * @throws {Error} If label name validation fails
 	 */
 	constructor(options: MetricOptions);
 	/**
-	 * Validates metric label names and values
+	 * Validates metric label names
+	 * @private
+	 * @throws {Error} If any label name is invalid
+	 */
+	private validateLabelNames;
+	/**
+	 * Validates provided label values against expected label names
 	 * @protected
-	 * @param {Record<string, string>} [labels] - Labels to validate
-	 * @throws {Error} If any label name is invalid or value is not a string
+	 * @param {Record<string, string>} labels - Labels to validate
+	 * @throws {Error} If labels don't match expected label names
 	 */
 	protected validateLabels(labels?: Record<string, string>): void;
 	/**
@@ -308,7 +314,7 @@ declare abstract class BaseMetric {
 	/**
 	 * Formats labels for OpenMetrics output
 	 * @protected
-	 * @param {Record<string, string>} [labels] - Additional labels to include
+	 * @param {Record<string, string>} labels - Labels to format
 	 * @returns {string} Formatted label string in OpenMetrics format
 	 */
 	protected formatLabels(labels?: Record<string, string>): string;
@@ -364,44 +370,30 @@ export declare class Registry {
 	 */
 	constructor(options?: RegistryOptions);
 	/**
-	 * Generates a unique key for a metric based on name and labels
-	 * @private
-	 * @param {BaseMetric} metric - The metric instance
-	 * @returns {string} Composite key string
-	 */
-	private getMetricKey;
-	/**
 	 * Registers a new metric with the registry
 	 * @param {BaseMetric} metric - The metric to register
-	 * @throws {Error} If a metric with the same name and labels already exists
+	 * @throws {Error} If a metric with the same name already exists
 	 * @example
 	 * registry.register(new Counter({ name: 'hits', help: 'Page hits' }));
 	 */
 	register(metric: BaseMetric): void;
 	/**
-	 * Unregisters a specific metric instance
-	 * @param {BaseMetric} metric - The metric to remove
+	 * Unregisters a metric by name
+	 * @param {string} name - The metric name to remove
 	 * @returns {boolean} True if the metric was found and removed
 	 */
-	unregister(metric: BaseMetric): boolean;
-	/**
-	 * Unregisters all metrics with a given name
-	 * @param {string} name - The metric name to remove
-	 * @returns {number} Count of metrics removed
-	 */
-	unregisterByName(name: string): number;
+	unregister(name: string): boolean;
 	/**
 	 * Gets all registered metrics
 	 * @returns {BaseMetric[]} Array of all registered metrics
 	 */
 	getMetrics(): BaseMetric[];
 	/**
-	 * Finds a metric by name and optional labels
+	 * Finds a metric by name
 	 * @param {string} name - The metric name to find
-	 * @param {Record<string, string>} [labels] - Optional labels to match
 	 * @returns {BaseMetric|undefined} The found metric or undefined
 	 */
-	getMetric(name: string, labels?: Record<string, string>): BaseMetric | undefined;
+	getMetric(name: string): BaseMetric | undefined;
 	/**
 	 * Generates OpenMetrics-compatible text output
 	 * @returns {string} Formatted metrics text
@@ -414,32 +406,25 @@ export declare class Registry {
 }
 /**
  * A counter metric that represents a monotonically increasing value.
+ * Supports multiple time series with dynamic labels.
  * Counters are typically used to track request counts, completed tasks, or errors.
- *
  * @class Counter
  * @extends BaseMetric
  * @example
- * const counter = new Counter({ name: 'http_requests', help: 'Total HTTP requests' });
- * counter.inc();
- * counter.inc(5);
+ * const counter = new Counter({
+ *   name: 'http_requests',
+ *   help: 'Total HTTP requests',
+ *   labelNames: ['method', 'status']
+ * });
+ * counter.labels({ method: 'GET', status: '200' }).inc();
+ * counter.labels({ method: 'POST', status: '500' }).inc(2);
  */
 export declare class Counter extends BaseMetric {
 	/**
-	 * Current value of the counter
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private value;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated;
-	/**
-	 * Timestamp of creation (in milliseconds since epoch)
-	 * @private
-	 * @readonly
-	 */
-	private created;
+	private timeSeries;
 	/**
 	 * Creates a new Counter instance
 	 * @constructor
@@ -447,65 +432,74 @@ export declare class Counter extends BaseMetric {
 	 */
 	constructor(options: MetricOptions);
 	/**
-	 * Increments the counter value
+	 * Increments the counter value for specific labels
 	 * @param {number} [amount=1] - The amount to increment by (must be positive)
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * counter.inc(); // increments by 1
-	 * counter.inc(5); // increments by 5
+	 * @throws {Error} If amount is negative
 	 */
-	inc(amount?: number): void;
+	inc(amount?: number, labels?: Record<string, string>): void;
 	/**
-	 * Gets the current counter state
+	 * Gets the current counter state for specific labels
+	 * @param {Record<string, string>} labels - Label values to get
 	 * @returns {CounterData} Object containing value and timestamps
-	 * @example
-	 * const data = counter.get();
-	 * console.log(data.value, data.updated);
 	 */
-	get(): CounterData;
+	get(labels?: Record<string, string>): CounterData;
 	/**
-	 * Resets the counter to zero and updates timestamps
+	 * Resets the counter to zero for specific labels
+	 * @param {Record<string, string>} labels - Label values to reset
 	 * @returns {void}
 	 */
-	reset(): void;
+	reset(labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {CounterLabelInterface} Interface with inc method
+	 */
+	labels(labels?: Record<string, string>): CounterLabelInterface;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
 	 * @param {string} [prefix] - Optional metric name prefix
 	 * @returns {string} OpenMetrics formatted counter data
-	 * @example
-	 * console.log(counter.getMetric());
-	 * // # TYPE http_requests counter
-	 * // # HELP http_requests Total HTTP requests
-	 * // http_requests_total 6 1625097600
-	 * // http_requests_created 1625097000 1625097600
 	 */
 	getMetric(prefix?: string): string;
 }
 /**
+ * Interface for operating on a labeled counter time series
+ * @typedef {Object} CounterLabelInterface
+ * @property {function(number=): void} inc - Increment the counter value
+ */
+export interface CounterLabelInterface {
+	inc(amount?: number): void;
+}
+/**
  * A gauge metric that represents a value that can go up or down.
- * Gauges are typically used to track current memory usage, active connections,
- * or any other instantaneous measurement.
- *
+ * Supports multiple time series with dynamic labels.
  * @class Gauge
  * @extends BaseMetric
  * @example
- * const gauge = new Gauge({ name: 'temperature', help: 'Current temperature' });
- * gauge.set(23.5);
- * gauge.inc(0.5); // Increase by 0.5
- * gauge.dec(1.0); // Decrease by 1.0
+ * const gauge = new Gauge({
+ *   name: 'temperature',
+ *   help: 'Current temperature',
+ *   labelNames: ['location']
+ * });
+ * gauge.labels({ location: 'kitchen' }).set(23.5);
+ * gauge.labels({ location: 'bedroom' }).inc(0.5);
  */
 export declare class Gauge extends BaseMetric {
 	/**
-	 * Current value of the gauge
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private value;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated;
+	private timeSeries;
 	/**
 	 * Creates a new Gauge instance
 	 * @constructor
@@ -513,31 +507,26 @@ export declare class Gauge extends BaseMetric {
 	 */
 	constructor(options: MetricOptions);
 	/**
-	 * Increments the gauge value
+	 * Increments the gauge value for specific labels
 	 * @param {number} [amount=1] - The amount to increment by
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.inc(); // increments by 1
-	 * gauge.inc(2.5); // increments by 2.5
 	 */
-	inc(amount?: number): void;
+	inc(amount?: number, labels?: Record<string, string>): void;
 	/**
-	 * Decrements the gauge value
+	 * Decrements the gauge value for specific labels
 	 * @param {number} [amount=1] - The amount to decrement by
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.dec(); // decrements by 1
-	 * gauge.dec(0.5); // decrements by 0.5
 	 */
-	dec(amount?: number): void;
+	dec(amount?: number, labels?: Record<string, string>): void;
 	/**
-	 * Sets the gauge to a specific value
+	 * Sets the gauge to a specific value for specific labels
 	 * @param {number} value - The new value to set
+	 * @param {Record<string, string>} labels - Label values for this observation
 	 * @returns {void}
-	 * @example
-	 * gauge.set(42); // sets value to 42
 	 */
-	set(value: number): void;
+	set(value: number, labels?: Record<string, string>): void;
 	/**
 	 * Gets the current gauge state
 	 * @returns {GaugeData} Object containing value and timestamp
@@ -545,36 +534,59 @@ export declare class Gauge extends BaseMetric {
 	 * const data = gauge.get();
 	 * console.log(data.value, data.updated);
 	 */
-	get(): GaugeData;
+	get(labels?: Record<string, string>): GaugeData | null;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
+	/**
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {GaugeLabelInterface} Interface with inc, dec, and set methods
+	 */
+	labels(labels?: Record<string, string>): GaugeLabelInterface;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
 	 * @param {string} [prefix] - Optional metric name prefix
 	 * @returns {string} OpenMetrics formatted gauge data
-	 * @example
-	 * console.log(gauge.getMetric());
-	 * // # TYPE temperature gauge
-	 * // # HELP temperature Current temperature
-	 * // temperature 23.5 1625097600
 	 */
 	getMetric(prefix?: string): string;
 }
 /**
+ * Interface for operating on a labeled gauge time series
+ * @typedef {Object} GaugeLabelInterface
+ * @property {function(number=): void} inc - Increment the gauge value
+ * @property {function(number=): void} dec - Decrement the gauge value
+ * @property {function(number): void} set - Set the gauge to a specific value
+ */
+export interface GaugeLabelInterface {
+	inc(amount?: number): void;
+	dec(amount?: number): void;
+	set(value: number): void;
+}
+/**
  * A Histogram metric that tracks observations in configurable buckets
- * and provides both bucket counts and sum of observed values.
+ * with support for multiple time series via dynamic labels.
  *
  * Histograms are typically used to measure request durations, response sizes,
  * or other value distributions where you want to analyze quantiles.
- *
  * @class Histogram
  * @extends BaseMetric
  * @example
  * const histogram = new Histogram({
  *   name: 'http_request_duration_seconds',
  *   help: 'HTTP request duration distribution',
+ *   labelNames: ['method', 'status'],
  *   buckets: [0.1, 0.5, 1, 2.5]
  * });
- * histogram.observe(0.75);
+ *
+ * // Record observations with labels
+ * histogram.labels({ method: 'GET', status: '200' }).observe(0.3);
+ * histogram.labels({ method: 'POST', status: '500' }).observe(1.2);
  */
 export declare class Histogram extends BaseMetric {
 	/**
@@ -584,31 +596,10 @@ export declare class Histogram extends BaseMetric {
 	 */
 	private readonly buckets;
 	/**
-	 * Map of bucket counts (key = bucket upper bound as string)
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private counts;
-	/**
-	 * Sum of all observed values
-	 * @private
-	 */
-	private sum;
-	/**
-	 * Total number of observations
-	 * @private
-	 */
-	private count;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated;
-	/**
-	 * Timestamp of creation (in milliseconds since epoch)
-	 * @private
-	 * @readonly
-	 */
-	private created;
+	private timeSeries;
 	/**
 	 * Creates a new Histogram instance
 	 * @constructor
@@ -619,18 +610,52 @@ export declare class Histogram extends BaseMetric {
 		buckets?: number[];
 	});
 	/**
-	 * Records a new observation in the histogram
-	 * @param {number} value - The value to observe (must be non-negative)
-	 * @returns {void}
-	 * @example
-	 * histogram.observe(0.3); // Records a value in the appropriate buckets
+	 * Initializes a new time series with zero values
+	 * @private
+	 * @returns {Object} Initialized time series data structure
 	 */
-	observe(value: number): void;
+	private initializeTimeSeries;
 	/**
-	 * Resets all histogram values to zero
-	 * @returns {void}
+	 * Records a new observation in the histogram for specific labels
+	 * @param {number} value - The value to observe (must be non-negative)
+	 * @param {Record<string, string>} labels - Label values for this observation
+	 * @throws {Error} If value is negative or not finite
+	 * @example
+	 * histogram.observe(0.3, { method: 'GET', status: '200' });
 	 */
-	reset(): void;
+	observe(value: number, labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {HistogramLabelInterface} Interface with observe method
+	 * @example
+	 * const labeledHistogram = histogram.labels({ method: 'GET' });
+	 * labeledHistogram.observe(0.3);
+	 */
+	labels(labels?: Record<string, string>): HistogramLabelInterface;
+	/**
+	 * Resets all histogram values to zero for specific labels
+	 * @param {Record<string, string>} labels - Label values to reset
+	 * @example
+	 * histogram.reset({ method: 'GET' });
+	 */
+	reset(labels?: Record<string, string>): void;
+	/**
+	 * Gets a snapshot of current histogram state for specific labels
+	 * @param {Record<string, string>} labels - Label values to get
+	 * @returns {HistogramData} Current histogram data including buckets and counts
+	 * @example
+	 * const snapshot = histogram.getSnapshot({ method: 'GET' });
+	 * console.log(snapshot.sum, snapshot.count);
+	 */
+	getSnapshot(labels?: Record<string, string>): HistogramData;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
@@ -639,38 +664,53 @@ export declare class Histogram extends BaseMetric {
 	 * @example
 	 * console.log(histogram.getMetric());
 	 * // # TYPE http_request_duration_seconds histogram
-	 * // http_request_duration_seconds_bucket{le="0.1"} 0
-	 * // http_request_duration_seconds_bucket{le="0.5"} 1
-	 * // http_request_duration_seconds_bucket{le="+Inf"} 1
-	 * // http_request_duration_seconds_count 1
-	 * // http_request_duration_seconds_sum 0.3
-	 * // http_request_duration_seconds_created 1625097600
+	 * // http_request_duration_seconds_bucket{le="0.1",method="GET"} 0
+	 * // http_request_duration_seconds_bucket{le="0.5",method="GET"} 1
+	 * // http_request_duration_seconds_bucket{le="+Inf",method="GET"} 1
+	 * // http_request_duration_seconds_count{method="GET"} 1
+	 * // http_request_duration_seconds_sum{method="GET"} 0.3
+	 * // http_request_duration_seconds_created{method="GET"} 1625097600
 	 */
 	getMetric(prefix?: string): string;
-	/**
-	 * Gets a snapshot of current histogram state
-	 * @returns {HistogramData} Current histogram data including buckets and counts
-	 * @example
-	 * const snapshot = histogram.getSnapshot();
-	 * console.log(snapshot.sum, snapshot.count);
-	 */
-	getSnapshot(): HistogramData;
 }
 /**
- * A Summary metric that calculates configurable quantiles over a sliding time window.
+ * Interface for operating on a labeled histogram time series
+ * @interface HistogramLabelInterface
+ * @property {function(number): void} observe - Records a value in the histogram
+ */
+export interface HistogramLabelInterface {
+	/**
+	 * Records a value in the histogram
+	 * @param {number} value - The value to observe (must be non-negative)
+	 */
+	observe(value: number): void;
+}
+/**
+ * A Summary metric that calculates configurable quantiles over a sliding time window
+ * with support for both labeled and unlabeled time series.
+ *
  * Summaries are used to track distributions of observations (like request durations)
- * while maintaining efficient memory usage through bucket rotation.
+ * while maintaining efficient memory usage through bucket rotation. They provide:
+ * - Quantile calculations over a sliding time window
+ * - Total sum and count of observations
+ * - Both labeled and unlabeled metric support
  *
  * @class Summary
  * @extends BaseMetric
  * @example
+ * // Basic usage
  * const summary = new Summary({
- *   name: 'request_duration',
+ *   name: 'request_duration_seconds',
  *   help: 'Request duration distribution',
  *   quantiles: [0.5, 0.95],
  *   maxAgeSeconds: 300
  * });
+ *
+ * // Record observations
  * summary.observe(0.25);
+ *
+ * // Labeled usage
+ * summary.labels({ method: 'GET' }).observe(0.3);
  */
 export declare class Summary extends BaseMetric {
 	/**
@@ -692,46 +732,10 @@ export declare class Summary extends BaseMetric {
 	 */
 	private readonly ageBuckets;
 	/**
-	 * Historical buckets of observations
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private buckets;
-	/**
-	 * Current active bucket of observations
-	 * @private
-	 */
-	private currentBucket;
-	/**
-	 * Interval timer for bucket rotation
-	 * @private
-	 */
-	private rotationInterval;
-	/**
-	 * Sum of all observations in the current window
-	 * @private
-	 */
-	private sum;
-	/**
-	 * Count of all observations in the current window
-	 * @private
-	 */
-	private count;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated;
-	/**
-	 * Timestamp of creation (in milliseconds since epoch)
-	 * @private
-	 * @readonly
-	 */
-	private created;
-	/**
-	 * Flag indicating if the summary has been destroyed
-	 * @private
-	 */
-	private isDestroyed;
+	private timeSeries;
 	/**
 	 * Creates a new Summary instance
 	 * @constructor
@@ -752,74 +756,136 @@ export declare class Summary extends BaseMetric {
 	 */
 	private validateQuantiles;
 	/**
-	 * Rotates buckets and maintains the sliding window
+	 * Initializes a new time series with empty buckets
 	 * @private
+	 * @param {string} key - The time series key
+	 * @returns {Object} Initialized time series data structure
+	 */
+	private initializeTimeSeries;
+	/**
+	 * Rotates buckets and maintains the sliding window for a specific time series
+	 * @private
+	 * @param {string} key - The time series key to rotate
 	 */
 	private rotateBuckets;
 	/**
 	 * Recalculates sum and count from all valid buckets
 	 * @private
+	 * @param {Object} series - The time series to recalculate
 	 */
 	private recalculateAggregates;
 	/**
 	 * Records a new observation in the summary
 	 * @param {number} value - The value to observe (must be finite and non-negative)
-	 * @returns {void}
+	 * @param {Record<string, string>} [labels] - Optional label values
+	 * @throws {Error} If value is invalid or labels are invalid
 	 * @example
-	 * summary.observe(0.3);
+	 * // Unlabeled observation
+	 * summary.observe(0.25);
+	 *
+	 * // Labeled observation
+	 * summary.observe(0.3, { method: 'GET' });
 	 */
-	observe(value: number): void;
+	observe(value: number, labels?: Record<string, string>): void;
 	/**
-	 * Resets all summary values and buckets
-	 * @returns {void}
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} [labels] - Optional label values
+	 * @returns {SummaryLabelInterface} Interface with observe method
+	 * @example
+	 * // Get labeled interface
+	 * const labeled = summary.labels({ method: 'GET' });
+	 * labeled.observe(0.3);
+	 *
+	 * // Get unlabeled interface
+	 * const unlabeled = summary.labels();
+	 * unlabeled.observe(0.4);
 	 */
-	reset(): void;
+	labels(labels?: Record<string, string>): SummaryLabelInterface;
+	/**
+	 * Resets summary values for a specific labeled time series or all
+	 * @param {Record<string, string>} [labels] - Optional label values to reset
+	 * @example
+	 * // Reset specific labels
+	 * summary.reset({ method: 'GET' });
+	 *
+	 * // Reset all
+	 * summary.reset();
+	 */
+	reset(labels?: Record<string, string>): void;
+	/**
+	 * Gets a snapshot of current summary state
+	 * @param {Record<string, string>} [labels] - Optional label values to get
+	 * @returns {SummaryData} Current summary statistics
+	 * @example
+	 * // Get snapshot for specific labels
+	 * const stats = summary.getSnapshot({ method: 'GET' });
+	 *
+	 * // Get snapshot for unlabeled
+	 * const defaultStats = summary.getSnapshot();
+	 */
+	getSnapshot(labels?: Record<string, string>): SummaryData;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
 	 * @param {string} [prefix] - Optional metric name prefix
 	 * @returns {string} OpenMetrics formatted summary data
 	 * @example
-	 * console.log(summary.getMetric());
-	 * // # TYPE request_duration summary
-	 * // request_duration{quantile="0.5"} 0.25
-	 * // request_duration{quantile="0.95"} 0.42
-	 * // request_duration_sum 3.5
-	 * // request_duration_count 10
-	 * // request_duration_created 1625097600
+	 * // Example output:
+	 * // # TYPE request_duration_seconds summary
+	 * // request_duration_seconds{quantile="0.5"} 0.25
+	 * // request_duration_seconds{quantile="0.95"} 0.42
+	 * // request_duration_seconds_sum 3.5
+	 * // request_duration_seconds_count 10
+	 * // request_duration_seconds_created 1625097600
 	 */
 	getMetric(prefix?: string): string;
 	/**
-	 * Gets a snapshot of current summary state
-	 * @returns {SummaryData} Current summary statistics
-	 * @example
-	 * const stats = summary.getSnapshot();
-	 * console.log(stats.sum, stats.count);
-	 */
-	getSnapshot(): SummaryData;
-	/**
-	 * Cleans up the summary by stopping rotation and clearing data
+	 * Cleans up all summary time series by stopping rotation and clearing data
 	 * @returns {void}
+	 * @example
+	 * summary.destroy();
 	 */
 	destroy(): void;
 }
 /**
+ * Interface for operating on a labeled summary time series
+ * @interface SummaryLabelInterface
+ * @property {function(number): void} observe - Records a value in the summary
+ */
+export interface SummaryLabelInterface {
+	/**
+	 * Records a value in the summary
+	 * @param {number} value - The value to observe (must be finite and non-negative)
+	 */
+	observe(value: number): void;
+}
+/**
  * A GaugeHistogram metric that tracks observations in configurable buckets
- * and provides both bucket counts and sum of observed values.
+ * with support for multiple time series via dynamic labels.
  *
  * Unlike regular histograms, GaugeHistograms can decrease in value and are
  * typically used for measurements that can go up or down like queue sizes
  * or memory usage.
- *
  * @class GaugeHistogram
  * @extends BaseMetric
  * @example
  * const gh = new GaugeHistogram({
  *   name: 'request_size_bytes',
  *   help: 'Size of HTTP requests',
+ *   labelNames: ['method'],
  *   buckets: [100, 500, 1000]
  * });
- * gh.observe(250);
+ *
+ * // Record observations with labels
+ * gh.labels({ method: 'GET' }).observe(250);
+ * gh.labels({ method: 'POST' }).observe(750);
  */
 export declare class GaugeHistogram extends BaseMetric {
 	/**
@@ -829,31 +895,10 @@ export declare class GaugeHistogram extends BaseMetric {
 	 */
 	private readonly buckets;
 	/**
-	 * Map of bucket counts (key = bucket upper bound as string)
+	 * Internal storage of time series data by label values
 	 * @private
 	 */
-	private counts;
-	/**
-	 * Sum of all observed values
-	 * @private
-	 */
-	private sum;
-	/**
-	 * Total number of observations
-	 * @private
-	 */
-	private count;
-	/**
-	 * Timestamp of last update (in milliseconds since epoch)
-	 * @private
-	 */
-	private updated;
-	/**
-	 * Timestamp of creation (in milliseconds since epoch)
-	 * @private
-	 * @readonly
-	 */
-	private created;
+	private timeSeries;
 	/**
 	 * Creates a new GaugeHistogram instance
 	 * @constructor
@@ -864,18 +909,52 @@ export declare class GaugeHistogram extends BaseMetric {
 		buckets?: number[];
 	});
 	/**
-	 * Records a new observation in the histogram
-	 * @param {number} value - The value to observe
-	 * @returns {void}
-	 * @example
-	 * gh.observe(0.8); // Records a value in the appropriate buckets
+	 * Initializes a new time series with zero values
+	 * @private
+	 * @returns {Object} Initialized time series data structure
 	 */
-	observe(value: number): void;
+	private initializeTimeSeries;
 	/**
-	 * Resets all histogram values to zero
-	 * @returns {void}
+	 * Records a new observation in the histogram for specific labels
+	 * @param {number} value - The value to observe
+	 * @param {Record<string, string>} labels - Label values for this observation
+	 * @throws {Error} If value is not finite or labels are invalid
+	 * @example
+	 * gh.observe(250, { method: 'GET' });
 	 */
-	reset(): void;
+	observe(value: number, labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for operating on a specific labeled time series
+	 * @param {Record<string, string>} labels - Label values for the time series
+	 * @returns {GaugeHistogramLabelInterface} Interface with observe method
+	 * @example
+	 * const labeledHistogram = gh.labels({ method: 'GET' });
+	 * labeledHistogram.observe(250);
+	 */
+	labels(labels?: Record<string, string>): GaugeHistogramLabelInterface;
+	/**
+	 * Resets all histogram values to zero for specific labels
+	 * @param {Record<string, string>} labels - Label values to reset
+	 * @example
+	 * gh.reset({ method: 'GET' });
+	 */
+	reset(labels?: Record<string, string>): void;
+	/**
+	 * Gets a snapshot of current histogram state for specific labels
+	 * @param {Record<string, string>} labels - Label values to get
+	 * @returns {GaugeHistogramData} Current histogram data including buckets and counts
+	 * @example
+	 * const snapshot = gh.getSnapshot({ method: 'GET' });
+	 * console.log(snapshot.sum, snapshot.count);
+	 */
+	getSnapshot(labels?: Record<string, string>): GaugeHistogramData;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
@@ -884,48 +963,81 @@ export declare class GaugeHistogram extends BaseMetric {
 	 * @example
 	 * console.log(gh.getMetric());
 	 * // # TYPE request_size_bytes gaugehistogram
-	 * // request_size_bytes_bucket{le="100"} 0
-	 * // request_size_bytes_bucket{le="500"} 1
-	 * // request_size_bytes_bucket{le="+Inf"} 1
-	 * // request_size_bytes_gcount 1
-	 * // request_size_bytes_gsum 250
+	 * // request_size_bytes_bucket{le="100",method="GET"} 0
+	 * // request_size_bytes_bucket{le="500",method="GET"} 1
+	 * // request_size_bytes_bucket{le="+Inf",method="GET"} 1
+	 * // request_size_bytes_gsum{method="GET"} 250
+	 * // request_size_bytes_gcount{method="GET"} 1
 	 */
 	getMetric(prefix?: string): string;
-	/**
-	 * Gets a snapshot of current histogram state
-	 * @returns {GaugeHistogramData} Current histogram data including buckets and counts
-	 * @example
-	 * const snapshot = gh.getSnapshot();
-	 * console.log(snapshot.sum, snapshot.count);
-	 */
-	getSnapshot(): GaugeHistogramData;
 }
 /**
- * An Info metric that provides static metadata about a component or service.
+ * Interface for operating on a labeled gauge histogram time series
+ * @interface GaugeHistogramLabelInterface
+ * @property {function(number): void} observe - Records a value in the histogram
+ */
+export interface GaugeHistogramLabelInterface {
+	/**
+	 * Records a value in the histogram
+	 * @param {number} value - The value to observe
+	 */
+	observe(value: number): void;
+}
+/**
+ * An Info metric that provides static metadata about a component or service
+ * with support for multiple time series via dynamic labels.
  *
  * Info metrics are used to expose constant information like versions, build info,
  * or other immutable attributes. They always have a value of 1 and are typically
  * used with labels to provide the metadata values.
- *
  * @class Info
  * @extends BaseMetric
  * @example
  * const info = new Info({
  *   name: 'build_info',
  *   help: 'Build information',
- *   labels: {
- *     version: '1.2.3',
- *     commit: 'abc123'
- *   }
+ *   labelNames: ['version', 'commit']
  * });
+ *
+ * // Set info values with labels
+ * info.labels({ version: '1.2.3', commit: 'abc123' }).set();
  */
 export declare class Info extends BaseMetric {
+	/**
+	 * Internal storage of info time series by label values
+	 * @private
+	 */
+	private timeSeries;
 	/**
 	 * Creates a new Info metric instance
 	 * @constructor
 	 * @param {MetricOptions} options - Configuration options
 	 */
 	constructor(options: MetricOptions);
+	/**
+	 * Records an info metric with specific label values
+	 * @param {Record<string, string>} labels - Label values containing the metadata
+	 * @returns {void}
+	 * @example
+	 * info.set({ version: '1.2.3', commit: 'abc123' });
+	 */
+	set(labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for setting info values with specific labels
+	 * @param {Record<string, string>} labels - Label values containing the metadata
+	 * @returns {InfoLabelInterface} Interface with set method
+	 * @example
+	 * const labeledInfo = info.labels({ version: '1.2.3' });
+	 * labeledInfo.set();
+	 */
+	labels(labels?: Record<string, string>): InfoLabelInterface;
+	/**
+	 * Generates a unique key for an info time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
@@ -936,30 +1048,54 @@ export declare class Info extends BaseMetric {
 	 * // # TYPE build_info info
 	 * // # HELP build_info Build information
 	 * // build_info_info{version="1.2.3",commit="abc123"} 1
+	 * // build_info_info{version="2.0.0",commit="def456"} 1
 	 */
 	getMetric(prefix?: string): string;
 }
 /**
- * A StateSet metric that represents a set of mutually exclusive states.
- * Each state is represented as a boolean value where exactly one state
- * should be true at any given time (like an enum).
+ * Interface for operating on a labeled info time series
+ * @interface InfoLabelInterface
+ * @property {function(): void} set - Records the info metric with label values
+ */
+export interface InfoLabelInterface {
+	/**
+	 * Records the info metric with label values
+	 */
+	set(): void;
+}
+/**
+ * A StateSet metric that represents a set of mutually exclusive states
+ * with support for multiple time series via dynamic labels.
  *
+ * Each state is represented as a boolean value where exactly one state
+ * should be true at any given time (like an enum). The StateSet can track
+ * different sets of states for different labeled instances.
  * @class StateSet
  * @extends BaseMetric
  * @example
  * const serviceState = new StateSet({
  *   name: 'service_state',
  *   help: 'Current service state',
+ *   labelNames: ['service_name'],
  *   states: ['starting', 'running', 'stopped', 'degraded']
  * });
- * serviceState.enableOnly('running');
+ *
+ * // Set states for different services
+ * serviceState.labels({ service_name: 'api' }).enableOnly('running');
+ * serviceState.labels({ service_name: 'worker' }).enableOnly('starting');
  */
 export declare class StateSet extends BaseMetric {
 	/**
-	 * Map of state names to their current boolean values
+	 * Array of valid state names
+	 * @private
+	 * @readonly
+	 */
+	private readonly stateNames;
+	/**
+	 * Internal storage of state sets by label values
 	 * @private
 	 */
-	private states;
+	private timeSeries;
 	/**
 	 * Creates a new StateSet instance
 	 * @constructor
@@ -977,22 +1113,46 @@ export declare class StateSet extends BaseMetric {
 	 */
 	private validateStates;
 	/**
-	 * Sets a specific state's value
+	 * Initializes a new state set with all states disabled
+	 * @private
+	 * @returns {Object} Initialized state set
+	 */
+	private initializeStateSet;
+	/**
+	 * Sets a specific state's value for labeled instance
 	 * @param {string} state - The state to modify
 	 * @param {boolean} value - The value to set
-	 * @throws {Error} If state doesn't exist
+	 * @param {Record<string, string>} labels - Label values identifying the instance
+	 * @throws {Error} If state doesn't exist or labels are invalid
 	 * @example
-	 * stateSet.setState('ready', true);
+	 * stateSet.setState('ready', true, { instance: 'primary' });
 	 */
-	setState(state: string, value: boolean): void;
+	setState(state: string, value: boolean, labels?: Record<string, string>): void;
 	/**
-	 * Enables exactly one state and disables all others
+	 * Enables exactly one state and disables all others for labeled instance
 	 * @param {string} state - The state to enable
-	 * @throws {Error} If state doesn't exist
+	 * @param {Record<string, string>} labels - Label values identifying the instance
+	 * @throws {Error} If state doesn't exist or labels are invalid
 	 * @example
-	 * stateSet.enableOnly('active');
+	 * stateSet.enableOnly('active', { instance: 'primary' });
 	 */
-	enableOnly(state: string): void;
+	enableOnly(state: string, labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for operating on a specific labeled state set
+	 * @param {Record<string, string>} labels - Label values identifying the instance
+	 * @returns {StateSetLabelInterface} Interface with state manipulation methods
+	 * @example
+	 * const labeledStateSet = stateSet.labels({ instance: 'primary' });
+	 * labeledStateSet.enableOnly('active');
+	 */
+	labels(labels: Record<string, string>): StateSetLabelInterface;
+	/**
+	 * Generates a unique key for a state set based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the state set
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
@@ -1002,35 +1162,62 @@ export declare class StateSet extends BaseMetric {
 	 * console.log(serviceState.getMetric());
 	 * // # TYPE service_state stateset
 	 * // # HELP service_state Current service state
-	 * // service_state{service_state="starting"} 0
-	 * // service_state{service_state="running"} 1
-	 * // service_state{service_state="stopped"} 0
-	 * // service_state{service_state="degraded"} 0
+	 * // service_state{service_state="starting",service_name="api"} 0
+	 * // service_state{service_state="running",service_name="api"} 1
+	 * // service_state{service_state="stopped",service_name="api"} 0
+	 * // service_state{service_state="degraded",service_name="api"} 0
+	 * // service_state{service_state="starting",service_name="worker"} 1
+	 * // service_state{service_state="running",service_name="worker"} 0
+	 * // service_state{service_state="stopped",service_name="worker"} 0
+	 * // service_state{service_state="degraded",service_name="worker"} 0
 	 */
 	getMetric(prefix?: string): string;
 }
 /**
- * A fallback metric type for representing untyped or custom metric data.
+ * Interface for operating on a labeled state set
+ * @interface StateSetLabelInterface
+ * @property {function(string, boolean): void} setState - Sets a specific state's value
+ * @property {function(string): void} enableOnly - Enables exactly one state and disables others
+ */
+export interface StateSetLabelInterface {
+	/**
+	 * Sets a specific state's value
+	 * @param {string} state - The state to modify
+	 * @param {boolean} value - The value to set
+	 */
+	setState(state: string, value: boolean): void;
+	/**
+	 * Enables exactly one state and disables all others
+	 * @param {string} state - The state to enable
+	 */
+	enableOnly(state: string): void;
+}
+/**
+ * A fallback metric type for representing untyped or custom metric data
+ * with support for multiple time series via dynamic labels.
  *
  * The Unknown metric provides basic functionality for tracking numeric values
  * when a specific metric type isn't available or appropriate. It maintains
  * minimal OpenMetrics compliance while allowing arbitrary values.
- *
  * @class Unknown
  * @extends BaseMetric
  * @example
  * const customMetric = new Unknown({
  *   name: 'custom_metric',
  *   help: 'Custom metric with arbitrary values',
- *   value: 42
+ *   labelNames: ['category', 'source']
  * });
+ *
+ * // Set values with different labels
+ * customMetric.labels({ category: 'api', source: 'external' }).set(42);
+ * customMetric.labels({ category: 'db', source: 'internal' }).set(3.14);
  */
 export declare class Unknown extends BaseMetric {
 	/**
-	 * Current numeric value of the metric
+	 * Internal storage of values by label values
 	 * @private
 	 */
-	private value;
+	private timeSeries;
 	/**
 	 * Creates a new Unknown metric instance
 	 * @constructor
@@ -1040,13 +1227,36 @@ export declare class Unknown extends BaseMetric {
 		value?: number;
 	});
 	/**
-	 * Sets the metric to a specific value
+	 * Sets the metric to a specific value for labeled instance
 	 * @param {number} value - The new value to set
+	 * @param {Record<string, string>} labels - Label values identifying the instance
 	 * @returns {void}
 	 * @example
-	 * unknownMetric.set(3.14);
+	 * unknownMetric.set(3.14, { instance: 'primary' });
 	 */
-	set(value: number): void;
+	set(value: number, labels?: Record<string, string>): void;
+	/**
+	 * Returns an interface for operating on a specific labeled instance
+	 * @param {Record<string, string>} labels - Label values identifying the instance
+	 * @returns {UnknownLabelInterface} Interface with set method
+	 * @example
+	 * const labeledMetric = unknownMetric.labels({ instance: 'primary' });
+	 * labeledMetric.set(3.14);
+	 */
+	labels(labels?: Record<string, string>): UnknownLabelInterface;
+	/**
+	 * Gets the current value for specific labels
+	 * @param {Record<string, string>} labels - Label values to get
+	 * @returns {number | undefined} The current value or undefined if not set
+	 */
+	get(labels?: Record<string, string>): number | undefined;
+	/**
+	 * Generates a unique key for a time series based on sorted label values
+	 * @private
+	 * @param {Record<string, string>} labels - Label values
+	 * @returns {string} Unique key for the time series
+	 */
+	private getTimeSeriesKey;
 	/**
 	 * Generates OpenMetrics-compatible text representation
 	 * @override
@@ -1056,9 +1266,22 @@ export declare class Unknown extends BaseMetric {
 	 * console.log(customMetric.getMetric());
 	 * // # TYPE custom_metric unknown
 	 * // # HELP custom_metric Custom metric with arbitrary values
-	 * // custom_metric 42
+	 * // custom_metric{category="api",source="external"} 42
+	 * // custom_metric{category="db",source="internal"} 3.14
 	 */
 	getMetric(prefix?: string): string;
+}
+/**
+ * Interface for operating on a labeled unknown metric
+ * @interface UnknownLabelInterface
+ * @property {function(number): void} set - Sets the metric value
+ */
+export interface UnknownLabelInterface {
+	/**
+	 * Sets the metric value
+	 * @param {number} value - The new value to set
+	 */
+	set(value: number): void;
 }
 
 export {};

@@ -42,28 +42,18 @@ export class Registry {
 	}
 
 	/**
-	 * Generates a unique key for a metric based on name and labels
-	 * @private
-	 * @param {BaseMetric} metric - The metric instance
-	 * @returns {string} Composite key string
-	 */
-	private getMetricKey(metric: BaseMetric): string {
-		return `${metric.name}|${JSON.stringify(metric.labels)}`;
-	}
-
-	/**
 	 * Registers a new metric with the registry
 	 * @param {BaseMetric} metric - The metric to register
-	 * @throws {Error} If a metric with the same name and labels already exists
+	 * @throws {Error} If a metric with the same name already exists
 	 * @example
 	 * registry.register(new Counter({ name: 'hits', help: 'Page hits' }));
 	 */
 	register(metric: BaseMetric): void {
-		const key = this.getMetricKey(metric);
-		if (this.metrics.has(key)) {
-			throw new Error(`Metric with name ${metric.name} and labels ${JSON.stringify(metric.labels)} already registered`);
+		const name = metric.name;
+		if (this.metrics.has(name)) {
+			throw new Error(`Metric with name ${name} already registered`);
 		}
-		this.metrics.set(key, metric);
+		this.metrics.set(name, metric);
 
 		if (this.autoRegister) {
 			metric.registry = this;
@@ -71,29 +61,12 @@ export class Registry {
 	}
 
 	/**
-	 * Unregisters a specific metric instance
-	 * @param {BaseMetric} metric - The metric to remove
+	 * Unregisters a metric by name
+	 * @param {string} name - The metric name to remove
 	 * @returns {boolean} True if the metric was found and removed
 	 */
-	unregister(metric: BaseMetric): boolean {
-		const key = this.getMetricKey(metric);
-		return this.metrics.delete(key);
-	}
-
-	/**
-	 * Unregisters all metrics with a given name
-	 * @param {string} name - The metric name to remove
-	 * @returns {number} Count of metrics removed
-	 */
-	unregisterByName(name: string): number {
-		let count = 0;
-		for (const [key, metric] of this.metrics) {
-			if (metric.name === name) {
-				this.metrics.delete(key);
-				count++;
-			}
-		}
-		return count;
+	unregister(name: string): boolean {
+		return this.metrics.delete(name);
 	}
 
 	/**
@@ -105,14 +78,12 @@ export class Registry {
 	}
 
 	/**
-	 * Finds a metric by name and optional labels
+	 * Finds a metric by name
 	 * @param {string} name - The metric name to find
-	 * @param {Record<string, string>} [labels] - Optional labels to match
 	 * @returns {BaseMetric|undefined} The found metric or undefined
 	 */
-	getMetric(name: string, labels?: Record<string, string>): BaseMetric | undefined {
-		const tempMetric = { name, labels } as BaseMetric;
-		return this.metrics.get(this.getMetricKey(tempMetric));
+	getMetric(name: string): BaseMetric | undefined {
+		return this.metrics.get(name);
 	}
 
 	/**
