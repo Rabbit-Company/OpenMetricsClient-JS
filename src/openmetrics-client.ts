@@ -10,6 +10,7 @@ export { StateSet } from "./metrics/StateSet";
 export { Unknown } from "./metrics/Unknown";
 
 export type {
+	OPENMETRICS_CONTENT_TYPE,
 	RegistryOptions,
 	MetricOptions,
 	CounterData,

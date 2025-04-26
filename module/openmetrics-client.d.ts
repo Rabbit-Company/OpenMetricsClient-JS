@@ -1,4 +1,18 @@
 /**
+ * The standard Content-Type header value for OpenMetrics format
+ * @constant
+ * @type {string}
+ * @default "application/openmetrics-text; version=1.0.0; charset=utf-8"
+ * @example
+ * // Using with HTTP response
+ * res.setHeader('Content-Type', OPENMETRICS_CONTENT_TYPE);
+ *
+ * // Using with fetch API
+ * const headers = new Headers();
+ * headers.set('Content-Type', OPENMETRICS_CONTENT_TYPE);
+ */
+export declare const OPENMETRICS_CONTENT_TYPE = "application/openmetrics-text; version=1.0.0; charset=utf-8";
+/**
  * Options for configuring a metrics registry
  * @interface RegistryOptions
  */
@@ -363,6 +377,21 @@ export declare class Registry {
 	 * @readonly
 	 */
 	private readonly autoRegister;
+	/**
+	 * Returns the standard OpenMetrics content type header value
+	 * @static
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', Registry.contentType);
+	 */
+	static get contentType(): string;
+	/**
+	 * Instance accessor for the content type
+	 * @returns {string} The content type string for OpenMetrics
+	 * @example
+	 * res.setHeader('Content-Type', registry.contentType);
+	 */
+	get contentType(): string;
 	/**
 	 * Creates a new Registry instance
 	 * @constructor

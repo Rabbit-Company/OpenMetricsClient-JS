@@ -1,8 +1,17 @@
+// src/types.ts
+var OPENMETRICS_CONTENT_TYPE = "application/openmetrics-text; version=1.0.0; charset=utf-8";
+
 // src/Registry.ts
 class Registry {
   metrics = new Map;
   prefix;
   autoRegister;
+  static get contentType() {
+    return OPENMETRICS_CONTENT_TYPE;
+  }
+  get contentType() {
+    return OPENMETRICS_CONTENT_TYPE;
+  }
   constructor(options) {
     this.prefix = options?.prefix;
     this.autoRegister = options?.autoRegister ?? false;
